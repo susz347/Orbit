@@ -25,6 +25,7 @@ from .monitoring import setup_prometheus, setup_sentry
 
 # API 路由
 from .api.knowledge import router as knowledge_router
+from .api.knowledge_plan import router as knowledge_plan_router
 from .api.performance import router as performance_router
 from .api.strategy import router as strategy_router
 from .api.logos import router as logos_router
@@ -118,6 +119,7 @@ app.add_middleware(
 
 # 注册路由
 app.include_router(knowledge_router)
+app.include_router(knowledge_plan_router)
 app.include_router(performance_router)
 app.include_router(strategy_router)
 app.include_router(logos_router)
