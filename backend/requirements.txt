@@ -20,3 +20,7 @@ alembic==1.16.0
 # P2 可观测性（可选）
 # prometheus-fastapi-instrumentator==7.0.0  # 取消注释以启用 /metrics 端点
 # sentry-sdk==2.29.0  # 取消注释以启用错误追踪
+# Knowledge Workbench 文档解析
+python-docx==1.1.2
+openpyxl==3.1.5
+reportlab==4.2.5
