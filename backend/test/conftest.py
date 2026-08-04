@@ -35,9 +35,9 @@ settings.UPLOAD_DIR = os.path.join(TEST_ROOT, "uploads")
 os.makedirs(settings.rag.storage.persist_dir, exist_ok=True)
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 
-import app.memory as memory_mod  # noqa: E402
+import app.memory.db as memory_db  # noqa: E402
 
-memory_mod.DB_PATH = os.path.join(TEST_ROOT, "memory.db")
+memory_db.DB_PATH = os.path.join(TEST_ROOT, "memory.db")
 
 
 # ── 状态清理：每个测试后清空 ChromaDB 全局 collection 与语义缓存 ──

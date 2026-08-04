@@ -1,8 +1,8 @@
 """cache/ — 语义缓存模块测试"""
 import time
 
-import app.cache as cache_mod
-from app.cache import get, put, stats, clear, _find_similar, _cache
+import app.cache.storage as cache_mod  # patch 目标：put/MAX_CACHE_SIZE 定义所在模块
+from app.cache import get, put, stats, clear, _find_similar, _cache  # 验证 __init__ 再导出兼容
 from app.embed import encode
 
 

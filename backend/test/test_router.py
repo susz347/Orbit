@@ -1,8 +1,8 @@
 """router/ — 模型路由模块测试（规则引擎为主，语义/LLM 层 mock 隔离）"""
 import pytest
 
-import app.router as router_mod
-from app.router import (
+import app.router.service as router_mod  # patch 目标：route_model 定义所在模块
+from app.router import (  # 验证 __init__ 再导出兼容
     route_model, detect_intent, _regex_classify, _llm_classify,
     RouteDecision, MODEL_PRESETS,
 )

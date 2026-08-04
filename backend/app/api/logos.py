@@ -26,8 +26,8 @@ def api_logos_summarize(body: dict = Body(...)):
     # 如果有 LLM API Key，用 LLM 生成总结
     api_key = os.getenv("LLM_API_KEY", "")
     if api_key:
-        from ..generate import _get_llm_config
-        _, base_url, model = _get_llm_config()
+        from ..llm import get_llm_config
+        _, base_url, model = get_llm_config()
         system_prompt = "你是 Logos 记忆管家。请将以下对话总结为结构化笔记，重点记录：1. 做了什么 2. 关键决策 3. 遇到的问题 4. 灵感收获 5. 待办事项。用 Markdown 输出。"
         payload = json.dumps({
             "model": model,

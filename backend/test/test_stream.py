@@ -3,8 +3,8 @@ import json
 
 import pytest
 
-import app.stream as stream_mod
-from app.stream import stream_ask, _sse, MIN_RELEVANCE_SCORE
+import app.stream.service as stream_mod  # patch 目标：stream_ask 定义所在模块
+from app.stream import stream_ask, _sse, MIN_RELEVANCE_SCORE  # 验证 __init__ 再导出兼容
 from app.router import RouteDecision
 
 
