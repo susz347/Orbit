@@ -12,16 +12,26 @@ from ..config import settings
 from ..knowledge_agent.adapter import OpenAICompatibleKnowledgeAgent
 from ..knowledge_agent.approval import RunNotFound, RunStateConflict, approve_run
 from ..knowledge_agent.execution import execute_run
+from ..knowledge_agent.evaluation import evaluate_run
+from ..knowledge_agent.evaluation_dataset import load_evaluation_cases
+from ..knowledge_agent.evaluation_repository import get_evaluation_report
 from ..knowledge_agent.executors.registry import build_executor_registry
 from ..knowledge_agent.pipeline import plan_folder
 from ..knowledge_agent.repository import get_run
+from ..knowledge_agent.releases import (
+    ReleaseConflict,
+    get_active_index,
+    promote_run,
+    rollback_run,
+)
 from ..knowledge_agent.run_state import InvalidRunTransition
-from ..knowledge_agent.staging_store import StagingStore
+from ..knowledge_agent.staging_store import StagingStore, StorageFailed
 from ..middleware.auth import get_current_user
 
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 _KNOWLEDGE_ROOT = Path(__file__).resolve().parents[3] / "knowledge"
+_EVALUATION_DATASET = _KNOWLEDGE_ROOT / "evals" / "questions.jsonl"
 
 
 class PlanFolderRequest(BaseModel):
@@ -147,3 +157,86 @@ def api_execute_run(
             },
         )
     return run
+
+
+@router.post("/runs/{run_id}/evaluate")
+def api_evaluate_run(
+    run_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Evaluate the isolated staging index against the versioned retrieval set."""
+
+    try:
+        return evaluate_run(
+            run_id,
+            database_path=_database_path(),
+            user_id=current_user["user_id"],
+            cases=load_evaluation_cases(_EVALUATION_DATASET),
+            staging_store=StagingStore(),
+        )
+    except RunNotFound as exc:
+        raise HTTPException(status_code=404, detail="KnowledgeRun 不存在") from exc
+    except (InvalidRunTransition, RunStateConflict) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/runs/{run_id}/evaluation")
+def api_get_evaluation(
+    run_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    report = get_evaluation_report(
+        run_id,
+        database_path=_database_path(),
+        user_id=current_user["user_id"],
+    )
+    if report is None:
+        raise HTTPException(status_code=404, detail="评测报告不存在")
+    return report
+
+
+@router.post("/runs/{run_id}/promote")
+def api_promote_run(
+    run_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    store = StagingStore()
+    try:
+        return promote_run(
+            run_id,
+            database_path=_database_path(),
+            user_id=current_user["user_id"],
+            collection_exists=lambda name: store.collection_exists(name),
+        )
+    except ReleaseConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except StorageFailed as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/active-version")
+def api_get_active_version(
+    current_user: dict = Depends(get_current_user),
+):
+    return get_active_index(
+        user_id=current_user["user_id"], database_path=_database_path()
+    )
+
+
+@router.post("/runs/{run_id}/rollback")
+def api_rollback_run(
+    run_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    store = StagingStore()
+    try:
+        return rollback_run(
+            run_id,
+            database_path=_database_path(),
+            user_id=current_user["user_id"],
+            collection_exists=lambda name: store.collection_exists(name),
+        )
+    except ReleaseConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except StorageFailed as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

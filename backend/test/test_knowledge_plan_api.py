@@ -9,6 +9,8 @@ from app.knowledge_agent.adapter import OpenAICompatibleKnowledgeAgent
 from app.knowledge_agent.catalog import STRATEGY_CATALOG
 from app.knowledge_agent.chunk_ids import make_chunk_id
 from app.knowledge_agent.models import AgentAttempt, KnowledgeChunk
+from app.knowledge_agent.evaluation_models import EvaluationReport
+from app.knowledge_agent.releases import ActiveIndexVersion
 from app.knowledge_agent.staging_store import staging_collection_name
 from app.middleware.auth import get_current_user
 
@@ -260,3 +262,46 @@ def test_unapproved_run_returns_conflict_without_initializing_chroma(tmp_path, m
     )
 
     assert response.status_code == 409
+
+
+def test_evaluate_report_promote_active_and_rollback_endpoints(tmp_path, monkeypatch):
+    app = FastAPI()
+    app.include_router(knowledge_plan.router)
+    app.dependency_overrides[get_current_user] = lambda: {"user_id": 42}
+    monkeypatch.setattr(
+        knowledge_plan, "_database_path", lambda: tmp_path / "audit.sqlite3"
+    )
+    report = EvaluationReport(
+        attempt_id="attempt-1", run_id="run-1", status="passed",
+        dataset_version="rag-retrieval.v1", source_hit_rate_at_5=1,
+        locator_hit_rate_at_5=1, mean_reciprocal_rank=1,
+        mean_ndcg_at_5=1, expected_vector_count=1,
+        actual_vector_count=1, duration_ms=1,
+    )
+    promoted = ActiveIndexVersion(
+        run_id="run-1", collection_name="kr_active", generation=1,
+        legacy=False, previous_collection_name="user_42",
+    )
+    rolled_back = ActiveIndexVersion(
+        run_id=None, collection_name="user_42", generation=2, legacy=True,
+    )
+    monkeypatch.setattr(knowledge_plan, "load_evaluation_cases", lambda path: ())
+    monkeypatch.setattr(knowledge_plan, "evaluate_run", lambda *a, **k: report)
+    monkeypatch.setattr(
+        knowledge_plan, "get_evaluation_report", lambda *a, **k: report
+    )
+    monkeypatch.setattr(knowledge_plan, "promote_run", lambda *a, **k: promoted)
+    monkeypatch.setattr(
+        knowledge_plan, "get_active_index", lambda *a, **k: promoted
+    )
+    monkeypatch.setattr(
+        knowledge_plan, "rollback_run", lambda *a, **k: rolled_back
+    )
+    monkeypatch.setattr(knowledge_plan, "StagingStore", lambda: object())
+    client = TestClient(app)
+
+    assert client.post("/api/knowledge/runs/run-1/evaluate").json() == report.model_dump(mode="json")
+    assert client.get("/api/knowledge/runs/run-1/evaluation").status_code == 200
+    assert client.post("/api/knowledge/runs/run-1/promote").json()["generation"] == 1
+    assert client.get("/api/knowledge/active-version").json()["collection_name"] == "kr_active"
+    assert client.post("/api/knowledge/runs/run-1/rollback").json()["legacy"] is True

@@ -105,7 +105,11 @@ class StagingStore:
         self._get_client().delete_collection(staging_collection_name(run_id, user_id))
 
     def exists(self, *, run_id: str, user_id: int | None) -> bool:
-        expected = staging_collection_name(run_id, user_id)
+        return self.collection_exists(staging_collection_name(run_id, user_id))
+
+    def collection_exists(self, collection_name: str) -> bool:
+        """Check a server-resolved collection name without creating it."""
+
         try:
             names = {
                 item if isinstance(item, str) else item.name
@@ -113,7 +117,7 @@ class StagingStore:
             }
         except Exception as exc:
             raise StorageFailed("storage_error") from exc
-        return expected in names
+        return collection_name in names
 
     def query(
         self,
