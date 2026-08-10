@@ -47,16 +47,19 @@ class StagingStore:
         client: Any | None = None,
         encoder: Callable[[list[str]], Sequence[Sequence[float]]] | None = None,
     ):
-        if client is None:
-            from app.store import get_client
-
-            client = get_client()
         if encoder is None:
             from app.embed import encode
 
             encoder = encode
         self.client = client
         self.encoder = encoder
+
+    def _get_client(self) -> Any:
+        if self.client is None:
+            from app.store import get_client
+
+            self.client = get_client()
+        return self.client
 
     def upsert(self, chunks: Sequence[KnowledgeChunk], *, user_id: int | None) -> int:
         if not chunks:
@@ -66,7 +69,7 @@ class StagingStore:
             raise ValueError("A staging upsert must contain exactly one run_id")
 
         try:
-            collection = self.client.get_or_create_collection(
+            collection = self._get_client().get_or_create_collection(
                 name=staging_collection_name(chunks[0].run_id, user_id),
                 metadata={"hnsw:space": "cosine"},
             )
@@ -91,11 +94,11 @@ class StagingStore:
         return len(chunks)
 
     def count(self, *, run_id: str, user_id: int | None) -> int:
-        collection = self.client.get_or_create_collection(
+        collection = self._get_client().get_or_create_collection(
             name=staging_collection_name(run_id, user_id),
             metadata={"hnsw:space": "cosine"},
         )
         return collection.count()
 
     def delete(self, *, run_id: str, user_id: int | None) -> None:
-        self.client.delete_collection(staging_collection_name(run_id, user_id))
+        self._get_client().delete_collection(staging_collection_name(run_id, user_id))

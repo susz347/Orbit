@@ -61,7 +61,7 @@ def build_chunks(
                     source_hash=profile.source_hash,
                     strategy_id=strategy_id,
                     chunk_index=chunk_index,
-                    locator=draft.locator,
+                    locator=f"{profile.source_path}\0{draft.locator}",
                 ),
                 text=text,
                 run_id=run_id,
