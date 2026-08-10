@@ -5,6 +5,7 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 from app.knowledge_agent.models import KnowledgeChunk
+from app.knowledge_agent.evaluation_models import RetrievedChunk
 
 
 class EmbeddingFailed(RuntimeError):
@@ -102,3 +103,76 @@ class StagingStore:
 
     def delete(self, *, run_id: str, user_id: int | None) -> None:
         self._get_client().delete_collection(staging_collection_name(run_id, user_id))
+
+    def exists(self, *, run_id: str, user_id: int | None) -> bool:
+        expected = staging_collection_name(run_id, user_id)
+        try:
+            names = {
+                item if isinstance(item, str) else item.name
+                for item in self._get_client().list_collections()
+            }
+        except Exception as exc:
+            raise StorageFailed("storage_error") from exc
+        return expected in names
+
+    def query(
+        self,
+        *,
+        run_id: str,
+        user_id: int | None,
+        question: str,
+        top_k: int,
+    ) -> tuple[RetrievedChunk, ...]:
+        if top_k < 1:
+            return ()
+        try:
+            collection = self._get_client().get_or_create_collection(
+                name=staging_collection_name(run_id, user_id),
+                metadata={"hnsw:space": "cosine"},
+            )
+            count = collection.count()
+        except Exception as exc:
+            raise StorageFailed("storage_error") from exc
+        if count == 0:
+            return ()
+        try:
+            query_embedding = list(self.encoder([question]))
+        except Exception as exc:
+            raise EmbeddingFailed("embedding_error") from exc
+        if len(query_embedding) != 1:
+            raise EmbeddingFailed("embedding_error")
+        try:
+            payload = collection.query(
+                query_embeddings=query_embedding,
+                n_results=min(top_k, count),
+                include=["documents", "metadatas", "distances"],
+            )
+        except Exception as exc:
+            raise StorageFailed("storage_error") from exc
+
+        ids = payload.get("ids", [[]])[0]
+        documents = payload.get("documents", [[]])[0]
+        metadatas = payload.get("metadatas", [[]])[0]
+        distances = payload.get("distances", [[]])[0]
+        results: list[RetrievedChunk] = []
+        for index, chunk_id in enumerate(ids):
+            metadata = metadatas[index] if index < len(metadatas) else {}
+            try:
+                heading_path = tuple(json.loads(metadata.get("heading_path", "[]")))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                heading_path = ()
+            results.append(
+                RetrievedChunk(
+                    rank=index + 1,
+                    distance=distances[index] if index < len(distances) else 1.0,
+                    chunk_id=chunk_id,
+                    text=documents[index] if index < len(documents) else "",
+                    source_path=metadata.get("source_path", "unknown"),
+                    heading_path=heading_path,
+                    page=metadata.get("page"),
+                    sheet=metadata.get("sheet"),
+                    row_number=metadata.get("row_number"),
+                    chunk_index=metadata.get("chunk_index", index),
+                )
+            )
+        return tuple(results)

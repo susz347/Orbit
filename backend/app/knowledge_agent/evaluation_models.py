@@ -29,3 +29,18 @@ class RetrievalEvaluationCase(BaseModel):
     relevant_locators: tuple[RelevantLocator, ...] = Field(min_length=1)
     critical: bool = True
     tags: tuple[str, ...] = ()
+
+
+class RetrievedChunk(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    rank: int = Field(ge=1)
+    distance: float
+    chunk_id: str = Field(min_length=1)
+    text: str
+    source_path: str = Field(min_length=1)
+    heading_path: tuple[str, ...] = ()
+    page: int | None = Field(default=None, ge=1)
+    sheet: str | None = None
+    row_number: int | None = Field(default=None, ge=1)
+    chunk_index: int = Field(ge=0)
