@@ -26,6 +26,12 @@ Knowledge Agent 推荐 RAG 策略
 策略目录校验 + 规则兜底
         ↓
 FolderPlan → KnowledgeRun → 人工审批
+        ↓
+多格式 Executor → 确定性 KnowledgeChunk
+        ↓
+按租户与 run_id 隔离的 staging collection
+        ↓
+等待 3.3 离线评测与发布决策
 ```
 
 当前已完成：
@@ -36,8 +42,11 @@ FolderPlan → KnowledgeRun → 人工审批
 - Agent 输出只能选择现有策略目录中的策略，强制复核要求不能被 Agent 取消。
 - `KnowledgeRun` 状态机、租户隔离、原子审批和 SQLite 审计记录。
 - 审批时重新比较完整文件清单与内容哈希；新增、删除、重命名或修改文件都会使计划失效。
+- Markdown、DOCX、XLSX、文本 PDF 与扫描 PDF 策略 Executor；扫描 PDF 通过可注入 OCR Adapter 执行，未配置 OCR 时明确阻塞。
+- Chunk ID 由运行、源文件哈希、策略和源定位确定性生成，同一运行重试不会重复创建向量。
+- 批准后的运行只写入按租户与 `run_id` 隔离的 ChromaDB staging collection；任一文档失败都会删除整个 staging 并把审计写入数归零。
 
-> **当前边界：** Knowledge Agent 目前支持策略规划和安全审批，仍保持 `vector_store_writes=0`，不会创建 Chunk、Embedding 或向量记录。第三阶段 3.2 将接入多格式策略 Executor 与按 `run_id` 隔离的 staging collection；评测、发布和回滚将在后续子阶段完成。
+> **当前边界：** 第三阶段 3.2 已能把批准计划执行到隔离的 staging collection，成功状态停在 `evaluating`。staging 不对现有搜索接口可见，活动知识库和版本指针不会变化；只有后续 3.3 离线评测通过后才允许发布，回滚也在后续子阶段实现。
 
 测试资产位于：
 
@@ -204,7 +213,8 @@ LLM 生成 → SSE 流式返回 → 前端渲染
 | `/api/knowledge/ask/stream` | GET | SSE 流式问答 |
 | `/api/knowledge/plan-folder` | POST | 生成文件夹 RAG 策略 dry-run，不写向量库 |
 | `/api/knowledge/runs/{run_id}` | GET | 查询当前用户的 KnowledgeRun 状态 |
-| `/api/knowledge/runs/{run_id}/approve` | POST | 校验源文件未变化后批准计划，仍不写向量库 |
+| `/api/knowledge/runs/{run_id}/approve` | POST | 校验源文件未变化后批准计划，此步骤不写向量库 |
+| `/api/knowledge/runs/{run_id}/execute` | POST | 执行批准计划并写入隔离 staging，等待离线评测 |
 | `/api/knowledge/strategy` | GET/PATCH | RAG 策略管理 |
 | `/api/knowledge/logos` | POST | 对话总结 |
 | `/api/auth/register` | POST | 注册 (限流) |
@@ -288,10 +298,16 @@ curl -X POST http://localhost:8001/api/knowledge/plan-folder \
 curl http://localhost:8001/api/knowledge/runs/<run_id> \
   -H "Authorization: Bearer <token>"
 
-# 批准未变化的计划；第三阶段 3.1 仍保持零向量写入
+# 批准未变化的计划；审批动作本身仍保持零向量写入
 curl -X POST http://localhost:8001/api/knowledge/runs/<run_id>/approve \
   -H "Authorization: Bearer <token>"
+
+# 执行已批准计划；仅写入隔离 staging，成功状态为 evaluating
+curl -X POST http://localhost:8001/api/knowledge/runs/<run_id>/execute \
+  -H "Authorization: Bearer <token>"
 ```
+
+执行前会再次校验完整文件清单与内容哈希。成功响应中的 `staging_collection`、`chunk_count` 与 `vector_store_writes` 用于审计，不代表内容已经发布；OCR、解析、Embedding 或存储失败会返回脱敏错误分类并清理该运行的全部 staging 数据。
 
 ## License
 

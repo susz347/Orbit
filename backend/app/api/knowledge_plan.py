@@ -11,9 +11,12 @@ from pydantic import BaseModel, Field
 from ..config import settings
 from ..knowledge_agent.adapter import OpenAICompatibleKnowledgeAgent
 from ..knowledge_agent.approval import RunNotFound, RunStateConflict, approve_run
+from ..knowledge_agent.execution import execute_run
+from ..knowledge_agent.executors.registry import build_executor_registry
 from ..knowledge_agent.pipeline import plan_folder
 from ..knowledge_agent.repository import get_run
 from ..knowledge_agent.run_state import InvalidRunTransition
+from ..knowledge_agent.staging_store import StagingStore
 from ..middleware.auth import get_current_user
 
 
@@ -102,6 +105,45 @@ def api_approve_run(
             detail={
                 "status": "invalidated",
                 "message": "源文件已变化，请重新生成计划后再审批",
+            },
+        )
+    return run
+
+
+@router.post("/runs/{run_id}/execute")
+def api_execute_run(
+    run_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Execute an approved plan into an isolated staging collection."""
+
+    try:
+        run = execute_run(
+            run_id,
+            knowledge_root=_KNOWLEDGE_ROOT,
+            database_path=_database_path(),
+            user_id=current_user["user_id"],
+            executors=build_executor_registry(),
+            staging_store=StagingStore(),
+        )
+    except RunNotFound as exc:
+        raise HTTPException(status_code=404, detail="KnowledgeRun 不存在") from exc
+    except (InvalidRunTransition, RunStateConflict) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if run.status == "invalidated":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "status": "invalidated",
+                "message": "源文件已变化，请重新生成计划后再执行",
+            },
+        )
+    if run.status == "failed":
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "status": "failed",
+                "execution_error": run.execution_error,
             },
         )
     return run

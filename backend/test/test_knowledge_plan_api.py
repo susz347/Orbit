@@ -6,7 +6,10 @@ from fastapi.testclient import TestClient
 
 from app.api import knowledge_plan
 from app.knowledge_agent.adapter import OpenAICompatibleKnowledgeAgent
-from app.knowledge_agent.models import AgentAttempt
+from app.knowledge_agent.catalog import STRATEGY_CATALOG
+from app.knowledge_agent.chunk_ids import make_chunk_id
+from app.knowledge_agent.models import AgentAttempt, KnowledgeChunk
+from app.knowledge_agent.staging_store import staging_collection_name
 from app.middleware.auth import get_current_user
 
 
@@ -36,6 +39,50 @@ class StaticAgent:
                 "requires_review": False,
             },
         )
+
+
+class RecordingStagingStore:
+    def __init__(self):
+        self.writes = []
+        self.deleted = []
+
+    def upsert(self, chunks, *, user_id):
+        self.writes.extend(chunks)
+        return len(chunks)
+
+    def delete(self, *, run_id, user_id):
+        self.deleted.append(staging_collection_name(run_id, user_id))
+
+
+class ApiStaticExecutor:
+    def __init__(self, strategy_id):
+        self.strategy_id = strategy_id
+
+    def execute(self, source, *, profile, run_id):
+        return (
+            KnowledgeChunk(
+                chunk_id=make_chunk_id(
+                    run_id=run_id,
+                    source_hash=profile.source_hash,
+                    strategy_id=self.strategy_id,
+                    chunk_index=0,
+                    locator=profile.source_path,
+                ),
+                text=source.name,
+                run_id=run_id,
+                source_path=profile.source_path,
+                source_hash=profile.source_hash,
+                strategy_id=self.strategy_id,
+                chunk_index=0,
+            ),
+        )
+
+
+def _static_registry():
+    return {
+        strategy_id: ApiStaticExecutor(strategy_id)
+        for strategy_id in STRATEGY_CATALOG
+    }
 
 
 def test_plan_folder_endpoint_requires_authentication():
@@ -162,3 +209,31 @@ def test_run_endpoint_hides_other_tenants_runs(tmp_path, monkeypatch):
     response = client.get(f"/api/knowledge/runs/{planned.json()['run_id']}")
 
     assert response.status_code == 404
+
+
+def test_approved_run_can_execute_to_evaluating(tmp_path, monkeypatch):
+    knowledge_root = tmp_path / "knowledge"
+    shutil.copytree(SOURCE_KNOWLEDGE / "fixtures", knowledge_root / "fixtures")
+    app = FastAPI()
+    app.include_router(knowledge_plan.router)
+    app.dependency_overrides[get_current_user] = lambda: {"user_id": 42}
+    database = tmp_path / "audit.sqlite3"
+    monkeypatch.setattr(knowledge_plan, "_KNOWLEDGE_ROOT", knowledge_root)
+    monkeypatch.setattr(knowledge_plan, "_database_path", lambda: database)
+    monkeypatch.setattr(knowledge_plan, "build_executor_registry", _static_registry)
+    store = RecordingStagingStore()
+    monkeypatch.setattr(knowledge_plan, "StagingStore", lambda: store)
+    client = TestClient(app)
+    planned = client.post(
+        "/api/knowledge/plan-folder",
+        json={"path": "fixtures", "use_agent": False},
+    )
+    run_id = planned.json()["run_id"]
+    assert client.post(f"/api/knowledge/runs/{run_id}/approve").status_code == 200
+
+    response = client.post(f"/api/knowledge/runs/{run_id}/execute")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "evaluating"
+    assert response.json()["staging_collection"].startswith("kr_")
+    assert response.json()["vector_store_writes"] == len(store.writes)
