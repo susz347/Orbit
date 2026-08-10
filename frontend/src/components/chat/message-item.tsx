@@ -82,7 +82,21 @@ export function MessageItem({ message }: MessageItemProps) {
             <button
               className="rounded p-1 text-muted hover:text-foreground transition-colors cursor-pointer"
               title="复制"
-              onClick={() => navigator.clipboard.writeText(message.content)}
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(message.content);
+                } catch {
+                  // 非 HTTPS 或无权限环境下 clipboard 不可用，降级用 execCommand
+                  const ta = document.createElement("textarea");
+                  ta.value = message.content;
+                  ta.style.position = "fixed";
+                  ta.style.opacity = "0";
+                  document.body.appendChild(ta);
+                  ta.select();
+                  try { document.execCommand("copy"); } catch { /* ignore */ }
+                  document.body.removeChild(ta);
+                }
+              }}
             >
               <Copy className="h-3 w-3" />
             </button>

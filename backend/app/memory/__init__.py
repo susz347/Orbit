@@ -14,6 +14,14 @@ from .profile import save_user_profile, get_user_profile
 from .project import save_project_context, get_latest_project
 from .summary import save_conversation_summary, get_recent_summaries
 from .restore import restore_context
+from .file_memory import (
+    scan_memory_files,
+    build_listing,
+    select_relevant,
+    build_file_memory_context,
+    get_session_usage,
+    add_session_usage,
+)
 
 __all__ = [
     "DB_PATH",
@@ -26,4 +34,10 @@ __all__ = [
     "save_conversation_summary",
     "get_recent_summaries",
     "restore_context",
+    "scan_memory_files",
+    "build_listing",
+    "select_relevant",
+    "build_file_memory_context",
+    "get_session_usage",
+    "add_session_usage",
 ]

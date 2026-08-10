@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { system } from "@/lib/api";
+import { system, agents } from "@/lib/api";
 import {
-  Settings, Cpu, Database, CheckCircle2, XCircle, Loader2,
-  Plus, ChevronDown, ChevronUp, Trash2,
+  Cpu, Database, CheckCircle2, XCircle, Loader2,
+  Plus, ChevronDown, ChevronUp, Trash2, Sparkles, Clock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +12,22 @@ interface ModelConfig {
   name: string;
   apiKey: string;
   enabled: boolean;
+}
+
+// P4: per-role 模型配置（Agent Loop 各角色独立模型，存 orbit_llm_roles_v1）
+const ROLE_LABELS: Record<string, string> = {
+  planner: "Planner（规划）",
+  builder: "Builder（执行）",
+  reviewer: "Reviewer（审查）",
+};
+
+function loadRoleModels(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const saved = localStorage.getItem("orbit_llm_roles_v1");
+    if (saved) return JSON.parse(saved) as Record<string, string>;
+  } catch { /* ignore */ }
+  return {};
 }
 
 function loadModels(): ModelConfig[] {
@@ -40,6 +56,28 @@ export function SettingsPanel() {
 
   const [models, setModels] = useState<ModelConfig[]>(loadModels);
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+  const [roleModels, setRoleModels] = useState<Record<string, string>>(loadRoleModels);
+
+  // P5: Schedule 管理
+  const [schedules, setSchedules] = useState<Array<{
+    id: number; project_name: string; task_prompt: string; cron_expr: string;
+    mode: "L1" | "L2"; enabled: boolean; next_run_at?: string;
+  }>>([]);
+  const [scheduleForm, setScheduleForm] = useState({
+    project_name: "",
+    task_prompt: "",
+    cron_expr: "0 9 * * *",
+    mode: "L1" as "L1" | "L2",
+  });
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+
+  const updateRoleModel = useCallback((role: string, model: string) => {
+    setRoleModels((prev) => {
+      const next = { ...prev, [role]: model };
+      localStorage.setItem("orbit_llm_roles_v1", JSON.stringify(next));
+      return next;
+    });
+  }, []);
 
   const checkHealth = async () => {
     setHealthLoading(true);
@@ -69,17 +107,17 @@ export function SettingsPanel() {
   }, []);
 
   const toggle = (i: number) => {
-    setExpandedIndex((prev) => {
-      if (prev === i) {
-        // collapsing - auto-remove if empty name
-        if (!models[i].name.trim()) {
-          removeModel(i);
-          return null;
-        }
-        return null;
+    const willCollapse = expandedIndex === i;
+    if (willCollapse) {
+      // 折叠时若模型名为空则自动移除（在事件处理顶层处理，避免在 state updater 中触发其他 state 更新导致渲染警告）
+      if (!models[i].name.trim()) {
+        removeModel(i);
+      } else {
+        setExpandedIndex(null);
       }
-      return i;
-    });
+    } else {
+      setExpandedIndex(i);
+    }
   };
 
   const updateModel = (i: number, patch: Partial<ModelConfig>) => {
@@ -111,6 +149,42 @@ export function SettingsPanel() {
   };
 
   const enabledModel = models.find((m) => m.enabled);
+
+  useEffect(() => {
+    agents.listSchedules().then((r) => setSchedules(r.schedules)).catch(() => setSchedules([]));
+  }, []);
+
+  const refreshSchedules = async () => {
+    const r = await agents.listSchedules();
+    setSchedules(r.schedules);
+  };
+
+  const createSchedule = async () => {
+    if (!scheduleForm.project_name.trim() || !scheduleForm.task_prompt.trim()) return;
+    setScheduleLoading(true);
+    try {
+      await agents.createSchedule({
+        project_name: scheduleForm.project_name.trim(),
+        task_prompt: scheduleForm.task_prompt.trim(),
+        cron_expr: scheduleForm.cron_expr.trim(),
+        mode: scheduleForm.mode,
+      });
+      setScheduleForm({ project_name: "", task_prompt: "", cron_expr: "0 9 * * *", mode: "L1" });
+      await refreshSchedules();
+    } finally {
+      setScheduleLoading(false);
+    }
+  };
+
+  const toggleSchedule = async (id: number, enabled: boolean) => {
+    await agents.updateSchedule(id, { enabled });
+    await refreshSchedules();
+  };
+
+  const deleteSchedule = async (id: number) => {
+    await agents.deleteSchedule(id);
+    await refreshSchedules();
+  };
 
   const StatusIcon = ({ ok }: { ok: boolean }) =>
     ok ? (
@@ -158,15 +232,15 @@ export function SettingsPanel() {
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted">SQLite</span>
               <span className="flex items-center gap-1.5 text-xs">
-                <StatusIcon ok={health?.database === "ok"} />
-                {health?.database === "ok" ? "正常" : "异常"}
+                <StatusIcon ok={health?.sqlite === "ok"} />
+                {health?.sqlite === "ok" ? "正常" : "异常"}
               </span>
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted">LLM 可达性</span>
               <span className="flex items-center gap-1.5 text-xs">
-                <StatusIcon ok={health?.llm === "reachable"} />
-                {health?.llm === "reachable" ? "可达" : "不可达"}
+                <StatusIcon ok={health?.llm_api === "ok"} />
+                {health?.llm_api === "ok" ? "可达" : "不可达"}
               </span>
             </div>
             <button
@@ -313,6 +387,124 @@ export function SettingsPanel() {
             <Plus className="h-3.5 w-3.5" />
             添加
           </button>
+        </section>
+
+        {/* P4: Agent 角色模型 */}
+        <section>
+          <h3 className="flex items-center gap-2 text-sm font-medium mb-1">
+            <Sparkles className="h-4 w-4 text-muted" />
+            Agent 角色模型
+          </h3>
+          <p className="text-[11px] text-muted mb-3">
+            Agent Loop 各角色独立模型（可选）。留空则使用上方启用的默认模型。
+          </p>
+          <div className="space-y-3 rounded-xl border border-border/50 bg-surface/30 p-4">
+            {Object.entries(ROLE_LABELS).map(([role, label]) => (
+              <div key={role}>
+                <label className="block text-xs font-medium text-muted mb-1">
+                  {label}
+                </label>
+                <input
+                  type="text"
+                  value={roleModels[role] || ""}
+                  onChange={(e) => updateRoleModel(role, e.target.value)}
+                  placeholder="留空 = 默认模型"
+                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-xs
+                             placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-primary/30
+                             transition-[border-color,box-shadow] duration-200"
+                />
+              </div>
+            ))}
+            <p className="text-[10px] text-muted/50">
+              例：Planner 用 gpt-4o-mini（便宜）、Builder 用 deepseek-chat、Reviewer 用 deepseek-reasoner（推理强）。
+            </p>
+          </div>
+        </section>
+
+        {/* P5: Schedule 管理 */}
+        <section>
+          <h3 className="flex items-center gap-2 text-sm font-medium mb-3">
+            <Clock className="h-4 w-4 text-muted" />
+            定时触发器
+          </h3>
+          <div className="space-y-3 rounded-xl border border-border/50 bg-surface/30 p-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <input
+                type="text"
+                value={scheduleForm.project_name}
+                onChange={(e) => setScheduleForm({ ...scheduleForm, project_name: e.target.value })}
+                placeholder="项目名"
+                className="rounded-lg border border-border bg-surface px-3 py-2 text-xs
+                           placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+              <select
+                value={scheduleForm.mode}
+                onChange={(e) => setScheduleForm({ ...scheduleForm, mode: e.target.value as "L1" | "L2" })}
+                className="rounded-lg border border-border bg-surface px-3 py-2 text-xs"
+              >
+                <option value="L1">L1 报告（只读分析+更新STATE）</option>
+                <option value="L2">L2 行动（用户确认后落盘）</option>
+              </select>
+            </div>
+            <input
+              type="text"
+              value={scheduleForm.cron_expr}
+              onChange={(e) => setScheduleForm({ ...scheduleForm, cron_expr: e.target.value })}
+              placeholder="cron: m h dom mon dow（例：0 9 * * *）"
+              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-xs
+                         placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+            <textarea
+              value={scheduleForm.task_prompt}
+              onChange={(e) => setScheduleForm({ ...scheduleForm, task_prompt: e.target.value })}
+              placeholder="每次触发时给 agent 的任务描述"
+              rows={2}
+              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-xs
+                         placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"
+            />
+            <button
+              onClick={createSchedule}
+              disabled={scheduleLoading || !scheduleForm.project_name.trim() || !scheduleForm.task_prompt.trim()}
+              className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground
+                         hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {scheduleLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+              创建 schedule
+            </button>
+
+            {schedules.length > 0 && (
+              <div className="space-y-2 pt-2 border-t border-border/50">
+                {schedules.map((s) => (
+                  <div key={s.id} className="flex items-start justify-between gap-2 text-xs">
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{s.project_name}</div>
+                      <div className="text-muted truncate">{s.task_prompt}</div>
+                      <div className="text-[10px] text-muted/70">
+                        {s.cron_expr} · {s.mode} · 下次 {s.next_run_at || "未计算"}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => toggleSchedule(s.id, !s.enabled)}
+                        className={cn(
+                          "rounded px-2 py-1 transition-colors",
+                          s.enabled ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"
+                        )}
+                      >
+                        {s.enabled ? "启用" : "禁用"}
+                      </button>
+                      <button
+                        onClick={() => deleteSchedule(s.id)}
+                        className="rounded p-1 text-muted/50 hover:text-error hover:bg-error/10"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </section>
       </div>
     </div>

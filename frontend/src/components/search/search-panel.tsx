@@ -6,9 +6,12 @@ import { knowledge } from "@/lib/api";
 import { motion, AnimatePresence } from "motion/react";
 
 interface SearchResult {
-  content: string;
-  metadata: Record<string, string>;
-  similarity: number;
+  // Bug #16: 与后端 /api/knowledge/search 对齐（text/score/metadata.source）
+  text: string;
+  content?: string;
+  metadata: Record<string, string> & { source?: string; filename?: string };
+  score: number;
+  similarity?: number;
 }
 
 export function SearchPanel() {
@@ -18,6 +21,8 @@ export function SearchPanel() {
   const [searched, setSearched] = useState(false);
   const queryRef = useRef(query);
   queryRef.current = query;
+  // IME 组字状态跟踪：中文/日文输入法拼音确认期间为 true
+  const isComposingRef = useRef(false);
 
   const handleSearch = useCallback(async () => {
     const q = queryRef.current.trim();
@@ -37,6 +42,8 @@ export function SearchPanel() {
   }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // 中文输入法 composing 期间（如拼音确认）不触发搜索，仅确认候选词
+    if (isComposingRef.current || e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === "Enter") handleSearch();
   };
 
@@ -61,6 +68,11 @@ export function SearchPanel() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
+            onCompositionStart={() => { isComposingRef.current = true; }}
+            onCompositionEnd={(e) => {
+              isComposingRef.current = false;
+              setQuery(e.currentTarget.value);
+            }}
             placeholder="输入关键词搜索..."
             className="w-full rounded-lg border border-border bg-surface py-2.5 pl-9 pr-16 text-sm
                        placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-primary/30
@@ -113,36 +125,43 @@ export function SearchPanel() {
               <p className="text-xs font-medium text-muted/70">
                 找到 {results.length} 条结果
               </p>
-              {results.map((r, i) => (
-                <motion.div
-                  key={`${r.metadata.filename || "result"}-${i}`}
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.04 }}
-                  className="rounded-lg border border-border/50 bg-surface/30 p-3.5
-                             hover:border-primary/20 transition-colors duration-150 cursor-pointer"
-                >
-                  <div className="flex items-start gap-2.5">
-                    <FileText className="h-4 w-4 shrink-0 text-primary/60 mt-0.5" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm leading-relaxed text-foreground/85 line-clamp-3">
-                        {r.content}
-                      </p>
-                      <div className="mt-2 flex items-center gap-3">
-                        {r.metadata.filename && (
-                          <span className="flex items-center gap-1 text-[11px] text-primary/70">
-                            <ExternalLink className="h-2.5 w-2.5" />
-                            {r.metadata.filename}
+              {results.map((r, i) => {
+                // Bug #16: 后端字段为 text/score/metadata.source（非 content/similarity/filename）
+                const content = (r.text as string) ?? (r.content as string);
+                const score = (r.score as number) ?? (r.similarity as number);
+                const meta = (r.metadata || {}) as Record<string, unknown>;
+                const filename = (meta.source ?? meta.filename) as string;
+                return (
+                  <motion.div
+                    key={`${filename || "result"}-${i}`}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.04 }}
+                    className="rounded-lg border border-border/50 bg-surface/30 p-3.5
+                               hover:border-primary/20 transition-colors duration-150 cursor-pointer"
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <FileText className="h-4 w-4 shrink-0 text-primary/60 mt-0.5" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm leading-relaxed text-foreground/85 line-clamp-3">
+                          {content || "(无内容)"}
+                        </p>
+                        <div className="mt-2 flex items-center gap-3">
+                          {filename && (
+                            <span className="flex items-center gap-1 text-[11px] text-primary/70">
+                              <ExternalLink className="h-2.5 w-2.5" />
+                              {filename}
+                            </span>
+                          )}
+                          <span className={similarityColor(score)}>
+                            {typeof score === "number" ? `${Math.round(score * 100)}% 匹配` : "—"}
                           </span>
-                        )}
-                        <span className={similarityColor(r.similarity)}>
-                          {Math.round(r.similarity * 100)}% 匹配
-                        </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </motion.div>
-              ))}
+                  </motion.div>
+                );
+              })}
             </motion.div>
           ) : !searched ? (
             <div className="rounded-xl border border-border/50 bg-surface/30 px-4 py-10 text-center">

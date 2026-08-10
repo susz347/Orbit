@@ -1,0 +1,87 @@
+# gate.yaml — 机器可读，机械执行
+# Agent loop 每次运行前必须读取并遵守
+# 用户可直接编辑，下次 loop 开始前自动生效
+
+denylist:
+  # 密钥 & 凭证
+  - .env
+  - .env.*
+  - .env.local
+  - .env.production
+
+  # 认证相关路径
+  - "**/secrets/**"
+  - "**/credentials/**"
+  - "**/certs/**"
+  - "**/*.pem"
+  - "**/*-key.json"
+  - "**/serviceAccount.json"
+
+  # 支付 & 计费
+  - "**/payments/**"
+  - "**/billing/**"
+
+  # 基础设施配置
+  - "**/terraform/**"
+  - "**/*.tfstate"
+  - "**/infrastructure/**"
+
+  # CI/CD 配置
+  - ".github/workflows/*-deploy*"
+  - "**/deploy.yml"
+
+  # 数据库迁移（高风险）
+  - "**/migrations/**"
+
+# 执行模式: reject（拒绝）| warn（警告但继续）| log_only（仅记录）
+enforcement: reject
+
+# 当命中 denylist 时
+on_hit:
+  action: abort_immediately
+  notify: true
+
+# 允许的测试命令前缀（Builder verification_commands 必须匹配）
+allowed_commands:
+  - "python -m pytest"
+  - "python3 -m pytest"
+  - "npm test"
+  - "npm run test"
+  - "npm run lint"
+  - "go test"
+  - "cargo test"
+  - "make test"
+  - "pytest"
+  - "eslint"
+  - "mypy"
+  - "ruff check"
+  - "black --check"
+  - "prettier --check"
+  - "python -h"
+  - "python3 -h"
+  - "python -c"
+  - "python3 -c"
+  - "node -e"
+  - "node --version"
+  - "npm --version"
+  - "echo"
+  - "cat"
+  - "ls"
+  - "grep"
+  - "find"
+  - "wc"
+  - "head"
+  - "tail"
+  - "diff"
+  - "git status"
+  - "git diff"
+  - "git log"
+  - "date"
+  - "pwd"
+
+# 自动合并允许列表（L3 无人值守模式）
+auto_merge_allowlist:
+  only_if:
+    - change_type_is: ["typo", "lint_fix", "import_sort", "comment_fix", "doc_update"]
+    - not_in_denylist: true
+    - all_tests_pass: true

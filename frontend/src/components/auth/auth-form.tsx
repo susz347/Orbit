@@ -21,7 +21,8 @@ export function AuthForm() {
     try {
       const fn = isRegister ? auth.register : auth.login;
       const res = await fn(username, password);
-      login(username, res.token);
+      // Bug #17b: 后端返回 access_token（兼容 token 旧字段）
+      login(username, res.access_token ?? res.token);
     } catch (err) {
       setError(err instanceof Error ? err.message : "操作失败");
     } finally {

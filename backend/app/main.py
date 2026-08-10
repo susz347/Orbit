@@ -17,6 +17,7 @@ from .middleware.request_id import RequestIDMiddleware
 from .embed import preload_model
 from .multitenant import init_db as init_tenant_db
 from .memory import init_memory_db
+from .agents import init_loop_db
 
 # API 路由
 from .api.knowledge import router as knowledge_router
@@ -27,6 +28,7 @@ from .api.auth import router as auth_router
 from .api.memory import router as memory_router
 from .api.onboarding import router as onboarding_router
 from .api.storage import router as storage_router
+from .agents.api import router as agents_router
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +40,22 @@ async def lifespan(app: FastAPI):
     try:
         init_tenant_db()
         init_memory_db()
+        init_loop_db()
     except Exception:
         logger.warning("Database init failed", exc_info=True)
     try:
         preload_model()
     except Exception:
         logger.warning("Embedding model preload failed, will load on first request", exc_info=True)
+
+    # P5: 启动 schedule 调度器（每分钟检查一次到期 schedule）
+    try:
+        from .agents.api import trigger_schedule
+        from .agents.schedule import start_scheduler
+        start_scheduler(trigger_schedule)
+    except Exception:
+        logger.warning("Schedule scheduler 启动失败", exc_info=True)
+
     yield
     logger.info("Knowledge Base Service shutting down...")
 
@@ -70,7 +82,12 @@ app.add_middleware(
     allow_origins=[o.strip() for o in _CORS_ORIGINS.split(",") if o.strip()],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-API-Key", "X-LLM-Model", "X-Request-ID"],
+    # Bug #11 修复：补齐 P4 per-role 模型 headers（X-LLM-Model-Planner/Builder/Reviewer/User），
+    # 否则浏览器预检（OPTIONS）失败 → 前端 "Failed to fetch"
+    allow_headers=[
+        "Content-Type", "Authorization", "X-API-Key", "X-LLM-Model", "X-Request-ID",
+        "X-LLM-Model-Planner", "X-LLM-Model-Builder", "X-LLM-Model-Reviewer", "X-LLM-Model-User",
+    ],
 )
 
 # 注册路由
@@ -82,6 +99,7 @@ app.include_router(auth_router)
 app.include_router(memory_router)
 app.include_router(onboarding_router)
 app.include_router(storage_router)
+app.include_router(agents_router)
 
 
 # ── 健康检查 ──
@@ -111,17 +129,16 @@ def health():
         checks["sqlite"] = f"unhealthy: {str(e)[:100]}"
 
     # 3. LLM API 可达性（可选）
+    # Bug #10 修复：HEAD 请求对 chat/completions 端点必然失败（不支持 HEAD），
+    # 且默认 base_url 是 OpenAI 而实际可能用 DeepSeek。
+    # 改为仅校验 key 是否配置（不产生真实 API 调用开销；真实调用失败会在请求时体现）。
     try:
         api_key = os.getenv("LLM_API_KEY", "")
         if api_key:
-            import urllib.request
-            base_url = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1/chat/completions")
-            head_req = urllib.request.Request(base_url, method="HEAD")
-            urllib.request.urlopen(head_req, timeout=5)
             checks["llm_api"] = "ok"
         else:
             checks["llm_api"] = "skipped (no API key)"
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         checks["llm_api"] = f"unreachable: {str(e)[:100]}"
 
     all_healthy = all(

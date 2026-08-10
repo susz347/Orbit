@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Upload, FileText, Search, Trash2, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { cn, formatSize } from "@/lib/utils";
-import { knowledge } from "@/lib/api";
+import { knowledge, API_BASE } from "@/lib/api";
 
 interface DocRecord {
   filename: string;

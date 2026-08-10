@@ -15,7 +15,16 @@ interface StrategyState {
 }
 
 async function fetchStrategy(): Promise<StrategyState> {
-  return strategy.get();
+  // 后端返回嵌套结构（chunk.size / embed.model / retrieval.top_k），映射为组件扁平结构
+  const data = await strategy.get();
+  return {
+    chunk_size: data.chunk.size,
+    chunk_overlap: data.chunk.overlap,
+    top_k: data.retrieval.top_k,
+    embedding_model: data.embed.model,
+    search_mode: data.retrieval.method,
+    rerank_enabled: data.retrieval.rerank_enabled,
+  };
 }
 
 async function updateStrategy(patch: Partial<StrategyState>): Promise<void> {

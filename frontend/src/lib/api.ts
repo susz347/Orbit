@@ -72,12 +72,12 @@ async function request<T>(
 // Auth
 export const auth = {
   register: (username: string, password: string) =>
-    request<{ token: string }>("/api/auth/register", {
+    request<{ access_token: string; token?: string }>("/api/auth/register", {
       method: "POST",
       body: JSON.stringify({ username, password }),
     }),
   login: (username: string, password: string) =>
-    request<{ token: string }>("/api/auth/login", {
+    request<{ access_token: string; token?: string }>("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ username, password }),
     }),
@@ -95,7 +95,7 @@ export const knowledge = {
   },
 
   search: (q: string, topK = 5) =>
-    request<{ results: { content: string; metadata: Record<string, string>; similarity: number }[] }>(
+    request<{ results: { text: string; metadata: Record<string, string>; score: number }[] }>(
       `/api/knowledge/search?q=${encodeURIComponent(q)}&top_k=${topK}`
     ),
 
@@ -145,6 +145,7 @@ export const knowledge = {
 
       const decoder = new TextDecoder();
       let buffer = "";
+      let modelReceived = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -165,17 +166,207 @@ export const knowledge = {
                 continue;
               }
               if (data.text) onToken?.(data.text);
-              if (data.model) onDone?.(data.model);
+              if (data.model) {
+                modelReceived = true;
+                onDone?.(data.model);
+              }
             } catch {
               // ignore parse errors for partial chunks
             }
           }
         }
       }
+      // 流结束后若后端未发送 model 事件，兜底结束 loading，避免 UI 卡在加载态
+      if (!modelReceived) onDone?.("");
     }).catch((err) => {
       if (err.name !== "AbortError") {
         onError?.(err.message);
       }
+    });
+  },
+};
+
+// ── Agent Loop（P2：对话内嵌多智能体协作）──────────────────────
+
+export interface LoopEvent {
+  seq: number;
+  agent: string;
+  event_type: string;
+  payload: Record<string, unknown>;
+  created_at?: string;
+}
+
+export interface LoopGroup {
+  id: number;
+  session_id: string;
+  status: string;
+  current_agent: string;
+  iteration_count: number;
+  task_desc: string;
+  plan_json?: string;
+}
+
+interface LoopCallbacks {
+  onEvent?: (ev: LoopEvent) => void;
+  onCheckpoint?: (title: string, options: string[]) => void;
+  onDone?: () => void;
+  onError?: (message: string) => void;
+}
+
+// Agent Loop API
+export const agents = {
+  // 启动一个 loop（显式触发，/loop <任务>；P4 支持 per-role 模型；P5 支持 mode/project_name/budget）
+  runLoop: (
+    sessionId: string,
+    task: string,
+    projectDir = "",
+    roleModels?: Record<string, string>,
+    opts?: { projectName?: string; mode?: "interactive" | "L1" | "L2"; budgetLimit?: number }
+  ) => {
+    const headers: Record<string, string> = {};
+    if (roleModels) {
+      for (const [role, m] of Object.entries(roleModels)) {
+        if (m) headers[`X-LLM-Model-${role[0].toUpperCase()}${role.slice(1)}`] = m;
+      }
+    }
+    const body: Record<string, unknown> = { session_id: sessionId, task, project_dir: projectDir };
+    if (opts?.projectName) body.project_name = opts.projectName;
+    if (opts?.mode) body.mode = opts.mode;
+    if (opts?.budgetLimit) body.budget_limit = opts.budgetLimit;
+    return request<{ loop_id: number; status: string; message: string }>("/api/agents/loop", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+  },
+
+  listLoops: () => request<{ loops: LoopGroup[] }>("/api/agents/loops"),
+
+  getProjectState: (projectName: string, projectDir?: string) =>
+    request<{
+      project_name: string;
+      run_count: number;
+      token_consumption_total: number;
+      last_run_at?: string;
+      last_loop_result: Record<string, unknown>;
+      open_problems: string[];
+      constraints: string[];
+      critiques: Record<string, unknown>[];
+      summary_text: string;
+    }>(`/api/agents/state/${encodeURIComponent(projectName)}${projectDir ? `?project_dir=${encodeURIComponent(projectDir)}` : ""}`),
+
+  // schedules
+  listSchedules: () => request<{ schedules: Array<{ id: number; project_name: string; task_prompt: string; cron_expr: string; mode: "L1" | "L2"; enabled: boolean; last_run_at?: string; next_run_at?: string; created_at?: string }> }>("/api/agents/schedules"),
+  createSchedule: (body: {
+    project_name: string;
+    task_prompt: string;
+    cron_expr: string;
+    mode?: "L1" | "L2";
+    enabled?: boolean;
+  }) => request<{ id: number }>("/api/agents/schedules", { method: "POST", body: JSON.stringify(body) }),
+  updateSchedule: (id: number, body: Partial<{ task_prompt: string; cron_expr: string; mode: "L1" | "L2"; enabled: boolean }>) =>
+    request<{ status: string }>(`/api/agents/schedules/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteSchedule: (id: number) => request<{ status: string }>(`/api/agents/schedules/${id}`, { method: "DELETE" }),
+
+  // global kill switch
+  getPauseAll: () => request<{ key: string; value: boolean }>("/api/agents/loop/pause-all"),
+  setPauseAll: (paused: boolean) => request<{ key: string; value: boolean }>("/api/agents/loop/pause-all", { method: "POST", body: JSON.stringify({ paused }) }),
+
+  // P6: file memory
+  scanMemory: (root?: string) =>
+    request<{
+      root: string;
+      scanned: number;
+      listing: string;
+      files: Array<{ path: string; type: string; mtime: string | null }>;
+    }>(`/api/agents/memory/scan${root ? `?root=${encodeURIComponent(root)}` : ""}`),
+  selectMemory: (body: { query: string; root?: string; model?: string; session_id?: string }) =>
+    request<{
+      root: string;
+      scanned: number;
+      selected: number;
+      selected_files: string[];
+      injected_preview: string;
+      stats: Record<string, unknown>;
+    }>("/api/agents/memory/select", { method: "POST", body: JSON.stringify(body) }),
+
+  // 查询 loop 详情 + 全部事件（刷新后重放恢复）
+  getLoop: (loopId: number) =>
+    request<{ loop: LoopGroup; events: LoopEvent[] }>(`/api/agents/loop/${loopId}`),
+
+  // checkpoint 决策
+  decision: (loopId: number, decision: string, note = "") =>
+    request<{ status: string; decision: string }>(`/api/agents/loop/${loopId}/decision`, {
+      method: "POST",
+      body: JSON.stringify({ decision, note }),
+    }),
+
+  // SSE 事件流订阅
+  streamLoop: (loopId: number, cb: LoopCallbacks, abortSignal?: AbortSignal): Promise<void> => {
+    const token = getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    return fetch(`${API_BASE}/api/agents/loop/${loopId}/events`, {
+      headers,
+      signal: abortSignal,
+    }).then(async (response) => {
+      if (!response.ok) {
+        cb.onError?.(`HTTP ${response.status}`);
+        return;
+      }
+      const reader = response.body?.getReader();
+      if (!reader) return;
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let currentEvent = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // SSE 按空行分帧，每帧含 "event: <type>\ndata: <json>"
+        const frames = buffer.split("\n\n");
+        buffer = frames.pop() || "";
+
+        for (const frame of frames) {
+          const lines = frame.split("\n");
+          currentEvent = "";
+          let dataLine = "";
+          for (const line of lines) {
+            if (line.startsWith("event: ")) currentEvent = line.slice(7).trim();
+            else if (line.startsWith("data: ")) dataLine = line.slice(6);
+          }
+          if (!dataLine) continue;
+          let data: LoopEvent;
+          try {
+            data = JSON.parse(dataLine) as LoopEvent;
+          } catch {
+            continue; // 忽略不完整 chunk
+          }
+          // 关键修复：SSE event_type 在 `event: <type>` 行，不在 data JSON 中，需合并
+          data.event_type = currentEvent;
+          // 防御：payload 可能缺失（历史事件/兼容旧格式），统一兜底空对象
+          if (!data.payload) data.payload = {};
+          cb.onEvent?.(data);
+          if (currentEvent === "checkpoint") {
+            const title = (data.payload.title as string) || "等待你的决策";
+            const options = (data.payload.options as string[]) || ["continue"];
+            cb.onCheckpoint?.(title, options);
+          }
+          // Bug #7 修复：done/error 事件必须触发对应回调，否则 UI 永远显示"进行中"
+          if (currentEvent === "done") {
+            cb.onDone?.();
+          } else if (currentEvent === "error") {
+            const msg = (data.payload.message as string) || "Agent Loop 执行失败";
+            cb.onError?.(msg);
+          }
+        }
+      }
+    }).catch((err) => {
+      if (err.name !== "AbortError") cb.onError?.(err.message);
     });
   },
 };
@@ -196,10 +387,10 @@ export const strategy = {
     ),
 };
 
-// Health
+// Health（字段与后端 main.py /health 对齐：chromadb / sqlite / llm_api / status）
 export const system = {
   health: () =>
-    request<{ status: string; chromadb: string; database: string; llm: string }>(
+    request<{ status: string; chromadb: string; sqlite: string; llm_api: string }>(
       "/health"
     ),
 };

@@ -5,13 +5,14 @@ import { Sidebar } from "@/components/sidebar/sidebar";
 import { ChatInterface } from "@/components/chat/chat-interface";
 import { KnowledgeBasePanel } from "@/components/knowledge-base/kb-panel";
 import { SearchPanel } from "@/components/search/search-panel";
-import { AgentPanel } from "@/components/agent/agent-panel";
 import { SettingsPanel } from "@/components/settings/settings-panel";
 import { StrategyPanel } from "@/components/strategy/strategy-panel";
 import { OnboardingWizard } from "@/components/onboarding/wizard";
+import { AuthForm } from "@/components/auth/auth-form";
+import { useAuth } from "@/lib/auth-context";
 import { motion, AnimatePresence } from "motion/react";
 
-type Tab = "chat" | "knowledge" | "search" | "agent" | "strategy" | "settings";
+type Tab = "chat" | "knowledge" | "search" | "strategy" | "settings";
 
 interface Conversation {
   id: string;
@@ -22,14 +23,38 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>("chat");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showAuth, setShowAuth] = useState(false);          // Bug #17: 接入登录/注册 UI
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversation, setActiveConversation] = useState<string | null>(null);
+  const { isAuthenticated } = useAuth();
 
+  // localStorage 只能在浏览器访问（SSR/hydration 安全），故必须放在 effect 里
   useEffect(() => {
+    // Bug #17: 未登录且未跳过时显示登录/注册页
+    if (!isAuthenticated && !localStorage.getItem("orbit_skip_login")) {
+      setShowAuth(true);
+      return;
+    }
     const onboarded = localStorage.getItem("orbit_onboarded");
     if (!onboarded) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 客户端渲染模式下的正确位置
       setShowOnboarding(true);
     }
+  }, [isAuthenticated]);
+
+  // 登录成功后关闭登录页，新用户走 onboarding
+  useEffect(() => {
+    if (isAuthenticated && showAuth) {
+      setShowAuth(false);
+      if (!localStorage.getItem("orbit_onboarded")) {
+        setShowOnboarding(true);
+      }
+    }
+  }, [isAuthenticated, showAuth]);
+
+  const handleSkipAuth = useCallback(() => {
+    localStorage.setItem("orbit_skip_login", "true");
+    setShowAuth(false);
   }, []);
 
   const handleOnboardingComplete = useCallback((role: string) => {
@@ -54,6 +79,21 @@ export default function Home() {
     if (activeConversation === id) setActiveConversation(null);
   }, [activeConversation]);
 
+  // Bug #17: 未登录且未跳过 → 登录/注册页（可跳过匿名使用）
+  if (showAuth && !isAuthenticated) {
+    return (
+      <div className="relative min-h-screen">
+        <AuthForm />
+        <button
+          onClick={handleSkipAuth}
+          className="absolute bottom-8 left-1/2 -translate-x-1/2 text-xs text-muted hover:text-foreground transition-colors cursor-pointer"
+        >
+          跳过，稍后登录
+        </button>
+      </div>
+    );
+  }
+
   if (showOnboarding) {
     return <OnboardingWizard onComplete={handleOnboardingComplete} />;
   }
@@ -66,8 +106,6 @@ export default function Home() {
         return <KnowledgeBasePanel key="knowledge" />;
       case "search":
         return <SearchPanel key="search" />;
-      case "agent":
-        return <AgentPanel key="agent" />;
       case "strategy":
         return <StrategyPanel key="strategy" />;
       case "settings":

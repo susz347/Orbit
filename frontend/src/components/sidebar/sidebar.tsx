@@ -5,7 +5,6 @@ import {
   MessageSquare,
   BookOpen,
   Search,
-  Eye,
   Settings,
   Plus,
   Zap,
@@ -13,9 +12,11 @@ import {
   Menu,
   X,
   Trash2,
+  LogOut,
 } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
 
-type Tab = "chat" | "knowledge" | "search" | "agent" | "strategy" | "settings";
+type Tab = "chat" | "knowledge" | "search" | "strategy" | "settings";
 
 interface SidebarProps {
   activeTab: Tab;
@@ -33,7 +34,6 @@ const navItems: { id: Tab; label: string; icon: typeof MessageSquare }[] = [
   { id: "chat", label: "对话", icon: MessageSquare },
   { id: "knowledge", label: "知识库", icon: BookOpen },
   { id: "search", label: "搜索", icon: Search },
-  { id: "agent", label: "Agent 观察", icon: Eye },
   { id: "strategy", label: "策略配置", icon: Sliders },
   { id: "settings", label: "设置", icon: Settings },
 ];
@@ -49,6 +49,7 @@ export function Sidebar({
   isOpen,
   onToggle,
 }: SidebarProps) {
+  const { isAuthenticated, username, logout } = useAuth();
   return (
     <>
       {/* Mobile overlay */}
@@ -151,7 +152,28 @@ export function Sidebar({
 
         {/* Footer */}
         <div className="border-t border-border/50 px-4 py-3">
-          <span className="text-xs text-muted">Orbit v1.0</span>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted">Orbit v1.0</span>
+          </div>
+          {/* Bug #18: 用户信息 + 登出入口 */}
+          {isAuthenticated && (
+            <div className="mt-2 flex items-center gap-2 rounded-lg bg-surface/40 px-2.5 py-2">
+              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/20 text-[10px] font-semibold text-primary">
+                {(username || "U").slice(0, 1).toUpperCase()}
+              </div>
+              <span className="min-w-0 flex-1 truncate text-xs text-foreground/85">
+                {username || "已登录"}
+              </span>
+              <button
+                onClick={() => { logout(); }}
+                className="shrink-0 rounded p-1 text-muted/50 hover:text-error hover:bg-error/10
+                           transition-colors duration-150 cursor-pointer"
+                title="退出登录"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
         </div>
       </aside>
     </>
