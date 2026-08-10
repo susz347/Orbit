@@ -44,3 +44,39 @@ class RetrievedChunk(BaseModel):
     sheet: str | None = None
     row_number: int | None = Field(default=None, ge=1)
     chunk_index: int = Field(ge=0)
+
+
+class EvaluationCaseResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    case_id: str
+    critical: bool
+    source_hit_at_5: bool
+    locator_hit_at_5: bool
+    reciprocal_rank: float = Field(ge=0.0, le=1.0)
+    ndcg_at_5: float = Field(ge=0.0, le=1.0)
+    matched_chunk_id: str | None = None
+    matched_source_path: str | None = None
+    matched_rank: int | None = Field(default=None, ge=1)
+    duration_ms: int = Field(ge=0)
+
+
+class EvaluationReport(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    attempt_id: str
+    run_id: str
+    status: Literal["passed", "rejected", "failed"]
+    dataset_version: str
+    source_hit_rate_at_5: float = Field(ge=0.0, le=1.0)
+    locator_hit_rate_at_5: float = Field(ge=0.0, le=1.0)
+    mean_reciprocal_rank: float = Field(ge=0.0, le=1.0)
+    mean_ndcg_at_5: float = Field(ge=0.0, le=1.0)
+    failures: tuple[str, ...] = ()
+    expected_vector_count: int = Field(ge=0)
+    actual_vector_count: int = Field(ge=0)
+    empty_chunk_count: int = Field(default=0, ge=0)
+    duplicate_chunk_count: int = Field(default=0, ge=0)
+    error_category: str | None = None
+    duration_ms: int = Field(ge=0)
+    cases: tuple[EvaluationCaseResult, ...] = ()

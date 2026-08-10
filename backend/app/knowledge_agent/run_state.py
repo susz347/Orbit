@@ -12,7 +12,7 @@ ALLOWED_TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
     "review_required": frozenset({"approved", "rejected", "invalidated"}),
     "approved": frozenset({"indexing", "invalidated"}),
     "indexing": frozenset({"evaluating", "failed"}),
-    "evaluating": frozenset({"promoted", "failed"}),
+    "evaluating": frozenset({"promoted", "rejected", "failed"}),
     "promoted": frozenset({"rolled_back"}),
 }
 
@@ -33,4 +33,3 @@ def transition_status(current: RunStatus, target: RunStatus) -> RunStatus:
     if target not in ALLOWED_TRANSITIONS.get(current, frozenset()):
         raise InvalidRunTransition(f"不允许从 {current} 转换为 {target}")
     return target
-
