@@ -20,7 +20,9 @@ CACHE_TTL_SECONDS = 3600    # 1 小时
 MAX_CACHE_SIZE = 500        # 最大缓存条目数
 
 
-def _find_similar(query_embedding: list[float]) -> Optional[dict]:
+def _find_similar(
+    query_embedding: list[float], namespace: str | None = None
+) -> Optional[dict]:
     """在缓存中查找相似查询"""
     now = time.time()
 
@@ -35,6 +37,8 @@ def _find_similar(query_embedding: list[float]) -> Optional[dict]:
 
     for key, entry in _cache.items():
         if now - entry["timestamp"] > CACHE_TTL_SECONDS:
+            continue
+        if entry.get("namespace") != namespace:
             continue
 
         # cosine similarity
@@ -62,7 +66,7 @@ def _find_similar(query_embedding: list[float]) -> Optional[dict]:
     return None
 
 
-def get(query: str) -> Optional[dict]:
+def get(query: str, namespace: str | None = None) -> Optional[dict]:
     """
     查询缓存。
     如果命中，返回 {"answer": ..., "sources": ..., "cache_hit": True, "cache_hit_score": ...}
@@ -74,7 +78,7 @@ def get(query: str) -> Optional[dict]:
         return None
 
     query_embedding = embeddings[0]
-    hit = _find_similar(query_embedding)
+    hit = _find_similar(query_embedding, namespace)
 
     if hit:
         return {
@@ -88,7 +92,10 @@ def get(query: str) -> Optional[dict]:
     return None
 
 
-def put(query: str, answer: str, sources: list, model: str):
+def put(
+    query: str, answer: str, sources: list, model: str,
+    namespace: str | None = None,
+):
     """存入缓存"""
     # LRU: 超过最大大小时删除最早的
     if len(_cache) >= MAX_CACHE_SIZE:
@@ -99,12 +106,13 @@ def put(query: str, answer: str, sources: list, model: str):
     if not embeddings:
         return
 
-    cache_key = f"q_{hash(query)}"
+    cache_key = f"q_{hash((namespace, query))}"
     _cache[cache_key] = {
         "query": query,
         "answer": answer,
         "sources": sources,
         "model": model,
+        "namespace": namespace,
         "embedding": embeddings[0],
         "timestamp": time.time(),
     }

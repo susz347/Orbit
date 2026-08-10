@@ -10,7 +10,7 @@ from ..config import settings
 from ..ingest import parse_file, get_file_type, SUPPORTED_TYPES
 from ..chunk import chunk_text
 from ..store import add_documents, delete_by_source, get_stats
-from ..search import search, search_formatted
+from ..search import resolve_active_version, search, search_formatted
 from ..generate import generate_answer
 from ..router import route_model
 from ..cache import get as cache_get, put as cache_put
@@ -128,9 +128,11 @@ def api_ask(request: Request, body: dict = Body(...), current_user: Optional[dic
 
     top_k = body.get("top_k") or settings.rag.retrieval.top_k
     user_id = current_user["user_id"] if current_user else None
+    active_version = resolve_active_version(user_id)
+    cache_namespace = f"{user_id}:{active_version.collection_name}"
 
     # 语义缓存检查
-    cached = cache_get(question)
+    cached = cache_get(question, namespace=cache_namespace)
     if cached:
         return {
             "question": question,
@@ -160,7 +162,10 @@ def api_ask(request: Request, body: dict = Body(...), current_user: Optional[dic
     user_api_key = request.headers.get("X-API-Key") or None
     user_model = request.headers.get("X-LLM-Model") or route.model
     result = generate_answer(question, chunks, body.get("history", []), model=user_model, api_key=user_api_key)
-    cache_put(question, result["answer"], result["sources"], result["model"])
+    cache_put(
+        question, result["answer"], result["sources"], result["model"],
+        namespace=cache_namespace,
+    )
 
     return {
         "question": question,

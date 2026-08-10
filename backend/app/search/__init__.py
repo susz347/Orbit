@@ -1,14 +1,36 @@
 """搜索模块：向量检索 + 结果后处理（支持多租户）"""
 
 import time
+from pathlib import Path
 from typing import Optional
 
 from ..config import settings
 from ..embed import encode
-from ..store import get_collection
+from ..knowledge_agent.releases import ActiveIndexVersion, get_active_index
+from ..store import get_collection_by_name
 
 # count 缓存（避免每次搜索都调用 O(n) 的 collection.count()）
 _count_cache: dict = {}  # {collection_name: {"value": int, "ts": float}}
+
+
+def _knowledge_database_path() -> Path:
+    database_url = settings.DATABASE_URL
+    if not database_url.startswith("sqlite:///"):
+        raise ValueError("Knowledge Agent active indexes require SQLite")
+    return Path(database_url.removeprefix("sqlite:///"))
+
+
+def resolve_active_collection(
+    user_id: Optional[int],
+) -> tuple[object, ActiveIndexVersion]:
+    version = resolve_active_version(user_id)
+    return get_collection_by_name(version.collection_name), version
+
+
+def resolve_active_version(user_id: Optional[int]) -> ActiveIndexVersion:
+    return get_active_index(
+        user_id=user_id, database_path=_knowledge_database_path()
+    )
 
 
 def _get_cached_count(collection, name: str, ttl: float = 5.0) -> int:
@@ -44,8 +66,8 @@ def search(query: str, top_k: int = None, user_id: Optional[int] = None) -> list
     if top_k < 1:
         return []
 
-    collection = get_collection(user_id)
-    collection_name = f"user_{user_id}" if user_id else settings.CHROMA_COLLECTION
+    collection, version = resolve_active_collection(user_id)
+    collection_name = version.collection_name
 
     if _get_cached_count(collection, collection_name) == 0:
         return []
@@ -88,7 +110,9 @@ def search_formatted(query: str, top_k: int = None, user_id: Optional[int] = Non
 
     lines = ["## 知识库检索结果\n"]
     for i, item in enumerate(items, 1):
-        source = item["metadata"].get("source", "未知")
+        source = item["metadata"].get("source_path") or item["metadata"].get(
+            "source", "未知"
+        )
         lines.append(f"### 结果 {i}（相关度: {item['score']:.0%} | 来源: {source}）")
         lines.append(item["text"])
         lines.append("")

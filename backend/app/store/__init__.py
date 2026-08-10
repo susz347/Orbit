@@ -2,10 +2,8 @@
 
 import uuid
 import threading
-from typing import Optional
+from typing import Any, Optional
 
-import chromadb
-from chromadb.config import Settings as ChromaSettings
 from ..config import settings
 from ..embed import encode
 
@@ -14,12 +12,15 @@ _client = None
 _client_lock = threading.Lock()
 
 
-def get_client() -> chromadb.ClientAPI:
+def get_client() -> Any:
     """获取 ChromaDB 客户端（线程安全单例）"""
     global _client
     if _client is None:
         with _client_lock:
             if _client is None:
+                import chromadb
+                from chromadb.config import Settings as ChromaSettings
+
                 _client = chromadb.PersistentClient(
                     path=settings.CHROMA_PERSIST_DIR,
                     settings=ChromaSettings(anonymized_telemetry=False),
@@ -27,7 +28,7 @@ def get_client() -> chromadb.ClientAPI:
     return _client
 
 
-def get_collection(user_id: Optional[int] = None) -> chromadb.Collection:
+def get_collection(user_id: Optional[int] = None) -> Any:
     """
     获取 Collection。
 
@@ -37,6 +38,15 @@ def get_collection(user_id: Optional[int] = None) -> chromadb.Collection:
     client = get_client()
     collection_name = f"user_{user_id}" if user_id else settings.CHROMA_COLLECTION
     return client.get_or_create_collection(
+        name=collection_name,
+        metadata={"hnsw:space": "cosine"},
+    )
+
+
+def get_collection_by_name(collection_name: str) -> Any:
+    """Open a server-resolved collection name; never expose this to HTTP input."""
+
+    return get_client().get_or_create_collection(
         name=collection_name,
         metadata={"hnsw:space": "cosine"},
     )
