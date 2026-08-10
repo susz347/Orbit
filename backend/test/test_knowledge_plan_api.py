@@ -237,3 +237,26 @@ def test_approved_run_can_execute_to_evaluating(tmp_path, monkeypatch):
     assert response.json()["status"] == "evaluating"
     assert response.json()["staging_collection"].startswith("kr_")
     assert response.json()["vector_store_writes"] == len(store.writes)
+
+
+def test_unapproved_run_returns_conflict_without_initializing_chroma(tmp_path, monkeypatch):
+    knowledge_root = tmp_path / "knowledge"
+    shutil.copytree(SOURCE_KNOWLEDGE / "fixtures", knowledge_root / "fixtures")
+    app = FastAPI()
+    app.include_router(knowledge_plan.router)
+    app.dependency_overrides[get_current_user] = lambda: {"user_id": 42}
+    monkeypatch.setattr(knowledge_plan, "_KNOWLEDGE_ROOT", knowledge_root)
+    monkeypatch.setattr(
+        knowledge_plan, "_database_path", lambda: tmp_path / "audit.sqlite3"
+    )
+    client = TestClient(app)
+    planned = client.post(
+        "/api/knowledge/plan-folder",
+        json={"path": "fixtures", "use_agent": False},
+    )
+
+    response = client.post(
+        f"/api/knowledge/runs/{planned.json()['run_id']}/execute"
+    )
+
+    assert response.status_code == 409

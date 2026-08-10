@@ -60,6 +60,12 @@ def test_staging_collection_is_run_and_tenant_scoped():
     assert staging_collection_name("a" * 32, 7) != staging_collection_name("b" * 32, 7)
 
 
+def test_default_chroma_client_is_loaded_lazily():
+    store = StagingStore(encoder=lambda texts: [[0.1]] * len(texts))
+
+    assert store.client is None
+
+
 def test_upsert_is_idempotent_and_metadata_is_scalar():
     client = FakeClient()
     chunks = _chunks()
