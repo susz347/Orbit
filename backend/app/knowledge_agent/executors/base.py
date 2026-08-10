@@ -20,6 +20,15 @@ class StrategyExecutor(Protocol):
     ) -> tuple[KnowledgeChunk, ...]: ...
 
 
+class OcrAdapter(Protocol):
+    def extract_pages(self, source: Path) -> tuple[str, ...]: ...
+
+
+class UnavailableOcrAdapter:
+    def extract_pages(self, source: Path) -> tuple[str, ...]:
+        raise ExecutionBlocked("ocr_unavailable")
+
+
 @dataclass(frozen=True)
 class ChunkDraft:
     text: str
