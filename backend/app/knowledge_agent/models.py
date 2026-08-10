@@ -84,6 +84,24 @@ class FolderPlan(BaseModel):
     documents: tuple[PlannedDocument, ...]
 
 
+class KnowledgeChunk(BaseModel):
+    """A deterministic, source-locatable unit prepared for vector indexing."""
+
+    model_config = ConfigDict(frozen=True)
+
+    chunk_id: str = Field(min_length=4)
+    text: str = Field(min_length=1)
+    run_id: str = Field(min_length=1)
+    source_path: str = Field(min_length=1)
+    source_hash: str = Field(min_length=64, max_length=64)
+    strategy_id: str = Field(min_length=1)
+    chunk_index: int = Field(ge=0)
+    page: int | None = Field(default=None, ge=1)
+    sheet: str | None = None
+    heading_path: tuple[str, ...] = ()
+    metadata: dict[str, str | int | float | bool] = Field(default_factory=dict)
+
+
 class KnowledgeRunRecord(BaseModel):
     """A tenant-scoped persisted summary of one KnowledgeRun."""
 
