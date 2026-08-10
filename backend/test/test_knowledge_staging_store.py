@@ -1,7 +1,11 @@
 import pytest
 
 from app.knowledge_agent.models import KnowledgeChunk
-from app.knowledge_agent.staging_store import StagingStore, staging_collection_name
+from app.knowledge_agent.staging_store import (
+    EmbeddingFailed,
+    StagingStore,
+    staging_collection_name,
+)
 
 
 class FakeCollection:
@@ -97,3 +101,13 @@ def test_real_chroma_upsert_is_idempotent():
     store.upsert(chunks, user_id=7)
 
     assert store.count(run_id="run-1", user_id=7) == len(chunks)
+
+
+def test_encoder_failure_has_a_typed_sanitized_boundary():
+    def fail_encoder(texts):
+        raise RuntimeError("model host secret")
+
+    store = StagingStore(client=FakeClient(), encoder=fail_encoder)
+
+    with pytest.raises(EmbeddingFailed, match="embedding_error"):
+        store.upsert(_chunks(), user_id=7)

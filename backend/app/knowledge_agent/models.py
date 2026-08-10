@@ -117,3 +117,8 @@ class KnowledgeRunRecord(BaseModel):
     created_at: str
     updated_at: str | None = None
     approved_at: str | None = None
+    staging_collection: str | None = None
+    chunk_count: int = Field(default=0, ge=0)
+    execution_error: str | None = None
+    indexing_started_at: str | None = None
+    indexing_completed_at: str | None = None

@@ -7,6 +7,14 @@ from typing import Any
 from app.knowledge_agent.models import KnowledgeChunk
 
 
+class EmbeddingFailed(RuntimeError):
+    """Sanitized boundary for encoder failures."""
+
+
+class StorageFailed(RuntimeError):
+    """Sanitized boundary for Chroma failures."""
+
+
 def staging_collection_name(run_id: str, user_id: int | None) -> str:
     tenant = hashlib.sha256(str(user_id).encode("utf-8")).hexdigest()[:8]
     sanitized_run = re.sub(r"[^a-zA-Z0-9]", "", run_id)[:32]
@@ -57,20 +65,29 @@ class StagingStore:
         if len(run_ids) != 1:
             raise ValueError("A staging upsert must contain exactly one run_id")
 
-        collection = self.client.get_or_create_collection(
-            name=staging_collection_name(chunks[0].run_id, user_id),
-            metadata={"hnsw:space": "cosine"},
-        )
+        try:
+            collection = self.client.get_or_create_collection(
+                name=staging_collection_name(chunks[0].run_id, user_id),
+                metadata={"hnsw:space": "cosine"},
+            )
+        except Exception as exc:
+            raise StorageFailed("storage_error") from exc
         texts = [chunk.text for chunk in chunks]
-        embeddings = list(self.encoder(texts))
+        try:
+            embeddings = list(self.encoder(texts))
+        except Exception as exc:
+            raise EmbeddingFailed("embedding_error") from exc
         if len(embeddings) != len(chunks):
-            raise ValueError("Embedding count does not match chunk count")
-        collection.upsert(
-            ids=[chunk.chunk_id for chunk in chunks],
-            embeddings=embeddings,
-            documents=texts,
-            metadatas=[_chunk_metadata(chunk) for chunk in chunks],
-        )
+            raise EmbeddingFailed("embedding_error")
+        try:
+            collection.upsert(
+                ids=[chunk.chunk_id for chunk in chunks],
+                embeddings=embeddings,
+                documents=texts,
+                metadatas=[_chunk_metadata(chunk) for chunk in chunks],
+            )
+        except Exception as exc:
+            raise StorageFailed("storage_error") from exc
         return len(chunks)
 
     def count(self, *, run_id: str, user_id: int | None) -> int:
