@@ -18,6 +18,33 @@ class RunStateConflict(RuntimeError):
     """Raised when another request changed the run before this transition."""
 
 
+def source_manifest_matches(
+    run: KnowledgeRunRecord,
+    *,
+    knowledge_root: Path,
+    database_path: Path,
+    user_id: int | None,
+) -> bool:
+    """Compare current files with the immutable tenant-owned run manifest."""
+
+    stored_manifest = load_source_hashes(
+        run.run_id, database_path=database_path, user_id=user_id
+    )
+    resolved_root = knowledge_root.resolve()
+    source_folder = (resolved_root / run.folder_path).resolve()
+    try:
+        source_folder.relative_to(resolved_root)
+    except ValueError as exc:
+        raise RunStateConflict("KnowledgeRun 文件夹越出知识库根目录") from exc
+    if not source_folder.is_dir():
+        return False
+    current_manifest = {
+        profile.source_path: profile.source_hash
+        for profile in scan_folder(source_folder)
+    }
+    return current_manifest == stored_manifest
+
+
 def approve_run(
     run_id: str,
     *,
@@ -31,23 +58,14 @@ def approve_run(
     if run is None:
         raise RunNotFound(run_id)
 
-    stored_manifest = load_source_hashes(
-        run_id, database_path=database_path, user_id=user_id
-    )
-    resolved_root = knowledge_root.resolve()
-    source_folder = (resolved_root / run.folder_path).resolve()
-    try:
-        source_folder.relative_to(resolved_root)
-    except ValueError as exc:
-        raise RunStateConflict("KnowledgeRun 文件夹越出知识库根目录") from exc
-    source_exists = source_folder.is_dir()
-    profiles = scan_folder(source_folder) if source_exists else []
-    current_manifest = {
-        profile.source_path: profile.source_hash for profile in profiles
-    }
     target = (
         "approved"
-        if source_exists and current_manifest == stored_manifest
+        if source_manifest_matches(
+            run,
+            knowledge_root=knowledge_root,
+            database_path=database_path,
+            user_id=user_id,
+        )
         else "invalidated"
     )
     transition_status(run.status, target)
