@@ -1,16 +1,41 @@
-"""检索核心：向量检索 + count 缓存（支持多租户）"""
+"""检索核心：向量检索 + count 缓存 + Active Index 版本解析（支持多租户）"""
 
 import time
 import threading
+from pathlib import Path
 from typing import Optional
 
 from ..config import settings
 from ..embed import encode
-from ..store import get_collection
+from ..knowledge_agent.releases import ActiveIndexVersion, get_active_index
+from ..store import get_collection, get_collection_by_name
 
 # count 缓存（避免每次搜索都调用 O(n) 的 collection.count()）
 _count_cache: dict = {}  # {collection_name: {"value": int, "ts": float}}
 _count_lock = threading.Lock()
+
+
+def _knowledge_database_path() -> Path:
+    """Knowledge Agent active indexes 依赖的 SQLite 数据库路径。"""
+    database_url = settings.DATABASE_URL
+    if not database_url.startswith("sqlite:///"):
+        raise ValueError("Knowledge Agent active indexes require SQLite")
+    return Path(database_url.removeprefix("sqlite:///"))
+
+
+def resolve_active_collection(
+    user_id: Optional[int],
+) -> tuple[object, ActiveIndexVersion]:
+    """解析当前用户 active index 版本对应的 Collection。"""
+    version = resolve_active_version(user_id)
+    return get_collection_by_name(version.collection_name), version
+
+
+def resolve_active_version(user_id: Optional[int]) -> ActiveIndexVersion:
+    """解析当前用户 active index 版本（未配置时回退到默认 Collection）。"""
+    return get_active_index(
+        user_id=user_id, database_path=_knowledge_database_path()
+    )
 
 
 def _get_cached_count(collection, name: str, ttl: float = 5.0) -> int:
@@ -49,8 +74,8 @@ def search(query: str, top_k: int = None, user_id: Optional[int] = None) -> list
     if top_k < 1:
         return []
 
-    collection = get_collection(user_id)
-    collection_name = f"user_{user_id}" if user_id else settings.CHROMA_COLLECTION
+    collection, version = resolve_active_collection(user_id)
+    collection_name = version.collection_name
 
     if _get_cached_count(collection, collection_name) == 0:
         return []

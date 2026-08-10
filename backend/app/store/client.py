@@ -38,3 +38,15 @@ def get_collection(user_id: Optional[int] = None) -> chromadb.Collection:
         name=collection_name,
         metadata={"hnsw:space": "cosine"},
     )
+
+
+def get_collection_by_name(collection_name: str) -> chromadb.Collection:
+    """按名称打开 Collection（服务端解析后的名称）。
+
+    注意：绝不将此函数直接暴露给 HTTP 输入——collection 名称必须
+    由服务端代码解析（如 active index 版本机制），防止任意 Collection 访问。
+    """
+    return get_client().get_or_create_collection(
+        name=collection_name,
+        metadata={"hnsw:space": "cosine"},
+    )
