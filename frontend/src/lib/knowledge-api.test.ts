@@ -85,4 +85,23 @@ describe("Knowledge API", () => {
       "/api/knowledge/active-version",
     ]);
   });
+
+  it("uploads a local file with multipart data and freezes the import", async () => {
+    const fetcher = vi.fn().mockResolvedValue(jsonResponse({ import_id: "i/1" }));
+    const api = createKnowledgeApi(fetcher);
+    const file = new File(["# doc"], "doc.md", { type: "text/markdown" });
+
+    await api.createImport();
+    await api.uploadImportFile("i/1", file, "folder/doc.md");
+    await api.completeImport("i/1");
+
+    expect(fetcher.mock.calls.map(([url]) => new URL(url).pathname)).toEqual([
+      "/api/knowledge/imports",
+      "/api/knowledge/imports/i%2F1/files",
+      "/api/knowledge/imports/i%2F1/complete",
+    ]);
+    const upload = fetcher.mock.calls[1][1];
+    expect(upload.body).toBeInstanceOf(FormData);
+    expect(upload.headers["Content-Type"]).toBeUndefined();
+  });
 });

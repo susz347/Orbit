@@ -124,6 +124,27 @@ export interface KnowledgeRunPage {
   next_cursor: string | null;
 }
 
+export interface ImportFileRecord {
+  relative_path: string;
+  size: number;
+  sha256: string;
+  status: "uploaded";
+}
+
+export interface ImportBatch {
+  import_id: string;
+  user_id: number | null;
+  status: "uploading" | "validating" | "ready" | "failed";
+  file_count: number;
+  total_size: number;
+  manifest_hash: string | null;
+  relative_path: string | null;
+  error_category: string | null;
+  created_at: string;
+  completed_at: string | null;
+  files: ImportFileRecord[];
+}
+
 export type WorkbenchStep =
   | "source"
   | "import"

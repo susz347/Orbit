@@ -7,6 +7,7 @@ import { knowledgeApi, type KnowledgeApi } from "@/lib/knowledge-api";
 import { ConfirmDialog } from "./confirm-dialog";
 import { deriveWorkbenchState } from "./workbench-state";
 import { EvaluationStep } from "./steps/evaluation-step";
+import { ImportStep } from "./steps/import-step";
 import { ExecutionStep } from "./steps/execution-step";
 import { ReleaseStep } from "./steps/release-step";
 import { SourceStep } from "./steps/source-step";
@@ -14,7 +15,7 @@ import { PlanningStep } from "./steps/planning-step";
 import { ReviewStep } from "./steps/review-step";
 import { WorkbenchProgress } from "./workbench-progress";
 import { WorkbenchSummary } from "./workbench-summary";
-import type { ActiveIndexVersion, EvaluationReport, FolderPlan, KnowledgeRun, WorkbenchStep } from "./workbench-types";
+import type { ActiveIndexVersion, EvaluationReport, FolderPlan, ImportBatch, KnowledgeRun, WorkbenchStep } from "./workbench-types";
 
 type Confirmation = "approve" | "promote" | "rollback";
 
@@ -39,13 +40,14 @@ function runFromPlan(plan: FolderPlan): KnowledgeRun {
 }
 
 export function KnowledgeWorkbench({ api = knowledgeApi }: { api?: KnowledgeApi }) {
-  const [sourceMode, setSourceMode] = useState<"server" | null>(null);
+  const [sourceMode, setSourceMode] = useState<"server" | "local" | null>(null);
   const [path, setPath] = useState("");
   const [useAgent, setUseAgent] = useState(true);
   const [plan, setPlan] = useState<FolderPlan | null>(null);
   const [run, setRun] = useState<KnowledgeRun | null>(null);
   const [activeVersion, setActiveVersion] = useState<ActiveIndexVersion | null>(null);
   const [evaluation, setEvaluation] = useState<EvaluationReport | null>(null);
+  const [importBatch, setImportBatch] = useState<ImportBatch | null>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -94,6 +96,7 @@ export function KnowledgeWorkbench({ api = knowledgeApi }: { api?: KnowledgeApi 
   const step: WorkbenchStep = useMemo(() => {
     if (run) return deriveWorkbenchState({ run, evaluation, activeVersion }).step;
     if (sourceMode === "server") return "planning";
+    if (sourceMode === "local") return "import";
     return "source";
   }, [activeVersion, evaluation, run, sourceMode]);
 
@@ -108,6 +111,36 @@ export function KnowledgeWorkbench({ api = knowledgeApi }: { api?: KnowledgeApi 
       localStorage.setItem("orbit_knowledge_run_id", nextPlan.run_id);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "无法生成策略计划");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function importLocalFolder(files: File[]) {
+    if (!files.length || pending) return;
+    const allowed = new Set(["md", "docx", "xlsx", "pdf"]);
+    const unsupported = files.find((file) => !allowed.has(file.name.split(".").pop()?.toLowerCase() ?? ""));
+    if (unsupported) {
+      setError(`不支持的文件类型: ${unsupported.name}`);
+      return;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      let batch = await api.createImport();
+      setImportBatch(batch);
+      for (const file of files) {
+        const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+        batch = await api.uploadImportFile(batch.import_id, file, relativePath);
+        setImportBatch(batch);
+      }
+      batch = await api.completeImport(batch.import_id);
+      setImportBatch(batch);
+      if (!batch.relative_path) throw new Error("导入批次未返回受控路径");
+      setPath(batch.relative_path);
+      setSourceMode("server");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "本地文件夹导入失败");
     } finally {
       setPending(false);
     }
@@ -156,7 +189,8 @@ export function KnowledgeWorkbench({ api = knowledgeApi }: { api?: KnowledgeApi 
       <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto p-5 xl:grid-cols-[minmax(0,1fr)_260px]">
         <main className="min-w-0 rounded-2xl border border-border/60 bg-[#111c31]/75 p-5 shadow-[0_24px_80px_rgba(0,0,0,.2)] md:p-7">
           {error && <div role="alert" className="mb-5 flex items-center gap-2 rounded-xl border border-error/30 bg-error/8 px-4 py-3 text-xs text-error"><AlertCircle className="h-4 w-4" />{error}</div>}
-          {step === "source" && <SourceStep onServer={() => setSourceMode("server")} />}
+          {step === "source" && <SourceStep onServer={() => setSourceMode("server")} onLocal={() => setSourceMode("local")} />}
+          {step === "import" && <ImportStep batch={importBatch} pending={pending} onFiles={importLocalFolder} onBack={() => { setSourceMode(null); setImportBatch(null); setError(null); }} />}
           {step === "planning" && <PlanningStep path={path} useAgent={useAgent} pending={pending} onPathChange={setPath} onAgentChange={setUseAgent} onSubmit={createPlan} onBack={() => setSourceMode(null)} />}
           {step === "review" && plan && <ReviewStep plan={plan} pending={pending} onApprove={() => setConfirmation("approve")} />}
           {step === "execution" && run && <ExecutionStep run={run} pending={pending} onExecute={() => perform("execute")} onEvaluate={() => perform("evaluate")} />}

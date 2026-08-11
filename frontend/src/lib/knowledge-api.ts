@@ -2,6 +2,7 @@ import type {
   ActiveIndexVersion,
   EvaluationReport,
   FolderPlan,
+  ImportBatch,
   KnowledgeRun,
   KnowledgeRunPage,
 } from "@/components/knowledge-workbench/workbench-types";
@@ -29,6 +30,11 @@ export interface KnowledgeApi {
   listRuns(limit?: number, cursor?: string): Promise<KnowledgeRunPage>;
   getRun(runId: string): Promise<KnowledgeRun>;
   getPlan(runId: string): Promise<FolderPlan>;
+  createImport(): Promise<ImportBatch>;
+  uploadImportFile(importId: string, file: File, relativePath: string): Promise<ImportBatch>;
+  completeImport(importId: string): Promise<ImportBatch>;
+  getImport(importId: string): Promise<ImportBatch>;
+  deleteImport(importId: string): Promise<void>;
   planFolder(input: PlanFolderInput): Promise<FolderPlan>;
   approve(runId: string): Promise<KnowledgeRun>;
   execute(runId: string): Promise<KnowledgeRun>;
@@ -51,7 +57,9 @@ export function createKnowledgeApi(fetcher: Fetcher = fetch): KnowledgeApi {
     };
     const token = storedToken();
     if (token) headers.Authorization = `Bearer ${token}`;
-    if (init.body !== undefined) headers["Content-Type"] = "application/json";
+    if (init.body !== undefined && !(init.body instanceof FormData)) {
+      headers["Content-Type"] = "application/json";
+    }
 
     const response = await fetcher(`${API_BASE}${endpoint}`, { ...init, headers });
     const payload = await response.json().catch(() => null);
@@ -77,6 +85,19 @@ export function createKnowledgeApi(fetcher: Fetcher = fetch): KnowledgeApi {
     },
     getRun: (runId) => request<KnowledgeRun>(runPath(runId)),
     getPlan: (runId) => request<FolderPlan>(runPath(runId, "/plan")),
+    createImport: () => request<ImportBatch>("/api/knowledge/imports", { method: "POST" }),
+    uploadImportFile(importId, file, relativePath) {
+      const form = new FormData();
+      form.set("relative_path", relativePath);
+      form.set("file", file);
+      return request<ImportBatch>(`/api/knowledge/imports/${encodeURIComponent(importId)}/files`, {
+        method: "POST",
+        body: form,
+      });
+    },
+    completeImport: (importId) => request<ImportBatch>(`/api/knowledge/imports/${encodeURIComponent(importId)}/complete`, { method: "POST" }),
+    getImport: (importId) => request<ImportBatch>(`/api/knowledge/imports/${encodeURIComponent(importId)}`),
+    deleteImport: (importId) => request<void>(`/api/knowledge/imports/${encodeURIComponent(importId)}`, { method: "DELETE" }),
     planFolder: (input) =>
       request<FolderPlan>("/api/knowledge/plan-folder", {
         method: "POST",
