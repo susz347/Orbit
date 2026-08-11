@@ -122,3 +122,12 @@ class KnowledgeRunRecord(BaseModel):
     execution_error: str | None = None
     indexing_started_at: str | None = None
     indexing_completed_at: str | None = None
+
+
+class KnowledgeRunPage(BaseModel):
+    """One tenant-scoped page ordered by creation time and run ID."""
+
+    model_config = ConfigDict(frozen=True)
+
+    items: tuple[KnowledgeRunRecord, ...]
+    next_cursor: str | None = None
