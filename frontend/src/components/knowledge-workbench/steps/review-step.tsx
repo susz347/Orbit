@@ -2,7 +2,7 @@ import { AlertTriangle, Bot, FileText, ShieldCheck } from "lucide-react";
 
 import type { FolderPlan, PlannedDocument } from "../workbench-types";
 
-export function ReviewStep({ plan }: { plan: FolderPlan }) {
+export function ReviewStep({ plan, pending, onApprove }: { plan: FolderPlan; pending: boolean; onApprove: () => void }) {
   const documents = [...plan.documents].sort((left, right) => {
     const reviewOrder = Number(right.decision.requires_review) - Number(left.decision.requires_review);
     return reviewOrder || left.profile.source_path.localeCompare(right.profile.source_path);
@@ -14,6 +14,9 @@ export function ReviewStep({ plan }: { plan: FolderPlan }) {
       <p className="mt-2 text-sm text-muted">计划仍是 dry-run。确认 Agent 建议、规则兜底和强制复核项后才能批准入库。</p>
       <div className="mt-6 space-y-3">
         {documents.map((document) => <DocumentReview key={document.profile.source_path} document={document} />)}
+      </div>
+      <div className="mt-6 flex justify-end border-t border-border/50 pt-5">
+        <button type="button" disabled={pending} onClick={onApprove} className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-hover disabled:opacity-40">批准计划</button>
       </div>
     </section>
   );

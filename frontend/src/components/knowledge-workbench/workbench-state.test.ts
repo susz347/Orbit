@@ -70,7 +70,7 @@ describe("deriveWorkbenchState", () => {
       activeVersion: null,
     });
     expect(result).toEqual({
-      step: "evaluation",
+      step: "execution",
       actions: ["evaluate"],
       readOnly: false,
     });

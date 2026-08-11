@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { KnowledgeApi } from "@/lib/knowledge-api";
-import type { FolderPlan } from "./workbench-types";
+import type { EvaluationReport, FolderPlan, KnowledgeRun } from "./workbench-types";
 import { KnowledgeWorkbench } from "./knowledge-workbench";
 
 const REVIEW_PLAN: FolderPlan = {
@@ -71,6 +71,43 @@ const REVIEW_PLAN: FolderPlan = {
   ],
 };
 
+const RUN_BASE: KnowledgeRun = {
+  run_id: "run-review-1",
+  user_id: 7,
+  folder_path: "fixtures",
+  status: "review_required",
+  dry_run: true,
+  vector_store_writes: 0,
+  document_count: 2,
+  created_at: "2026-08-11T08:00:00Z",
+  updated_at: null,
+  approved_at: null,
+  staging_collection: null,
+  chunk_count: 0,
+  execution_error: null,
+  indexing_started_at: null,
+  indexing_completed_at: null,
+};
+
+const PASSED_REPORT: EvaluationReport = {
+  attempt_id: "attempt-1",
+  run_id: "run-review-1",
+  status: "passed",
+  dataset_version: "rag-retrieval.v1",
+  source_hit_rate_at_5: 1,
+  locator_hit_rate_at_5: 0.95,
+  mean_reciprocal_rank: 0.9,
+  mean_ndcg_at_5: 0.93,
+  failures: [],
+  expected_vector_count: 12,
+  actual_vector_count: 12,
+  empty_chunk_count: 0,
+  duplicate_chunk_count: 0,
+  error_category: null,
+  duration_ms: 34,
+  cases: [],
+};
+
 function fakeApi(overrides: Partial<KnowledgeApi> = {}): KnowledgeApi {
   return {
     listRuns: vi.fn().mockResolvedValue({ items: [], next_cursor: null }),
@@ -126,5 +163,85 @@ describe("KnowledgeWorkbench server planning", () => {
     await user.click(screen.getByRole("button", { name: "生成策略计划" }));
 
     expect(api.planFolder).toHaveBeenCalledWith({ path: "fixtures", use_agent: false });
+  });
+
+  it("confirms and completes approve execute evaluate promote and rollback", async () => {
+    const user = userEvent.setup();
+    const api = fakeApi({
+      approve: vi.fn().mockResolvedValue({ ...RUN_BASE, status: "approved" }),
+      execute: vi.fn().mockResolvedValue({
+        ...RUN_BASE,
+        status: "evaluating",
+        dry_run: false,
+        vector_store_writes: 12,
+        chunk_count: 12,
+        staging_collection: "kr_active",
+      }),
+      evaluate: vi.fn().mockResolvedValue(PASSED_REPORT),
+      promote: vi.fn().mockResolvedValue({
+        run_id: "run-review-1",
+        collection_name: "kr_active",
+        generation: 1,
+        legacy: false,
+        previous_run_id: null,
+        previous_collection_name: "user_7",
+      }),
+      rollback: vi.fn().mockResolvedValue({
+        run_id: null,
+        collection_name: "user_7",
+        generation: 2,
+        legacy: true,
+        previous_run_id: null,
+        previous_collection_name: null,
+      }),
+    });
+    render(<KnowledgeWorkbench api={api} />);
+    await user.click(screen.getByRole("button", { name: /服务器目录/ }));
+    await user.type(screen.getByLabelText("知识目录相对路径"), "fixtures");
+    await user.click(screen.getByRole("button", { name: "生成策略计划" }));
+
+    await user.click(await screen.findByRole("button", { name: "批准计划" }));
+    expect(screen.getByRole("dialog", { name: "确认批准计划" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "确认批准" }));
+    await user.click(await screen.findByRole("button", { name: "执行隔离索引" }));
+    expect(await screen.findByText("等待离线评测")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "运行离线评测" }));
+    expect(await screen.findByText("MRR")).toBeVisible();
+    expect(screen.getByText("0.90")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "发布活动版本" }));
+    await user.click(screen.getByRole("button", { name: "确认发布" }));
+    expect(await screen.findByText("当前活动版本")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "回滚上一版本" }));
+    await user.click(screen.getByRole("button", { name: "确认回滚" }));
+
+    expect(api.rollback).toHaveBeenCalledWith("run-review-1");
+    expect(await screen.findByText("已回滚至 Legacy 索引")).toBeVisible();
+  });
+
+  it("does not offer promotion when evaluation is rejected", async () => {
+    const user = userEvent.setup();
+    const rejected = {
+      ...PASSED_REPORT,
+      status: "rejected" as const,
+      source_hit_rate_at_5: 0.8,
+      failures: ["critical_source_miss:support"],
+    };
+    const api = fakeApi({
+      approve: vi.fn().mockResolvedValue({ ...RUN_BASE, status: "approved" }),
+      execute: vi.fn().mockResolvedValue({ ...RUN_BASE, status: "evaluating" }),
+      evaluate: vi.fn().mockResolvedValue(rejected),
+    });
+    render(<KnowledgeWorkbench api={api} />);
+    await user.click(screen.getByRole("button", { name: /服务器目录/ }));
+    await user.type(screen.getByLabelText("知识目录相对路径"), "fixtures");
+    await user.click(screen.getByRole("button", { name: "生成策略计划" }));
+    await user.click(await screen.findByRole("button", { name: "批准计划" }));
+    await user.click(screen.getByRole("button", { name: "确认批准" }));
+    await user.click(await screen.findByRole("button", { name: "执行隔离索引" }));
+    await user.click(await screen.findByRole("button", { name: "运行离线评测" }));
+
+    expect(await screen.findByText("评测未通过")).toBeVisible();
+    expect(screen.getByText("critical_source_miss:support")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "发布活动版本" })).not.toBeInTheDocument();
   });
 });

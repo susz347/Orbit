@@ -4,12 +4,19 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Orbit } from "lucide-react";
 
 import { knowledgeApi, type KnowledgeApi } from "@/lib/knowledge-api";
+import { ConfirmDialog } from "./confirm-dialog";
+import { deriveWorkbenchState } from "./workbench-state";
+import { EvaluationStep } from "./steps/evaluation-step";
+import { ExecutionStep } from "./steps/execution-step";
+import { ReleaseStep } from "./steps/release-step";
 import { SourceStep } from "./steps/source-step";
 import { PlanningStep } from "./steps/planning-step";
 import { ReviewStep } from "./steps/review-step";
 import { WorkbenchProgress } from "./workbench-progress";
 import { WorkbenchSummary } from "./workbench-summary";
-import type { ActiveIndexVersion, FolderPlan, KnowledgeRun, WorkbenchStep } from "./workbench-types";
+import type { ActiveIndexVersion, EvaluationReport, FolderPlan, KnowledgeRun, WorkbenchStep } from "./workbench-types";
+
+type Confirmation = "approve" | "promote" | "rollback";
 
 function runFromPlan(plan: FolderPlan): KnowledgeRun {
   return {
@@ -38,6 +45,8 @@ export function KnowledgeWorkbench({ api = knowledgeApi }: { api?: KnowledgeApi 
   const [plan, setPlan] = useState<FolderPlan | null>(null);
   const [run, setRun] = useState<KnowledgeRun | null>(null);
   const [activeVersion, setActiveVersion] = useState<ActiveIndexVersion | null>(null);
+  const [evaluation, setEvaluation] = useState<EvaluationReport | null>(null);
+  const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,10 +57,10 @@ export function KnowledgeWorkbench({ api = knowledgeApi }: { api?: KnowledgeApi 
   }, [api]);
 
   const step: WorkbenchStep = useMemo(() => {
-    if (plan) return "review";
+    if (run) return deriveWorkbenchState({ run, evaluation, activeVersion }).step;
     if (sourceMode === "server") return "planning";
     return "source";
-  }, [plan, sourceMode]);
+  }, [activeVersion, evaluation, run, sourceMode]);
 
   async function createPlan() {
     if (!path.trim() || pending) return;
@@ -69,6 +78,39 @@ export function KnowledgeWorkbench({ api = knowledgeApi }: { api?: KnowledgeApi 
     }
   }
 
+  async function perform(action: "approve" | "execute" | "evaluate" | "promote" | "rollback") {
+    if (!run || pending) return;
+    setPending(true);
+    setError(null);
+    try {
+      if (action === "approve") setRun(await api.approve(run.run_id));
+      if (action === "execute") setRun(await api.execute(run.run_id));
+      if (action === "evaluate") {
+        const report = await api.evaluate(run.run_id);
+        setEvaluation(report);
+        if (report.status !== "passed") setRun({ ...run, status: report.status === "rejected" ? "rejected" : "failed" });
+      }
+      if (action === "promote") {
+        setActiveVersion(await api.promote(run.run_id));
+        setRun({ ...run, status: "promoted" });
+      }
+      if (action === "rollback") {
+        setActiveVersion(await api.rollback(run.run_id));
+        setRun({ ...run, status: "rolled_back" });
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "操作失败，请刷新后重试");
+    } finally {
+      setPending(false);
+      setConfirmation(null);
+    }
+  }
+
+  function restart() {
+    setPlan(null); setRun(null); setEvaluation(null); setSourceMode(null); setPath(""); setError(null);
+    localStorage.removeItem("orbit_knowledge_run_id");
+  }
+
   return (
     <div className="flex h-full flex-col bg-[radial-gradient(circle_at_75%_0%,rgba(59,130,246,.10),transparent_34%),#0f172a]">
       <header className="flex items-center justify-between border-b border-border/60 px-5 py-4">
@@ -81,10 +123,16 @@ export function KnowledgeWorkbench({ api = knowledgeApi }: { api?: KnowledgeApi 
           {error && <div role="alert" className="mb-5 flex items-center gap-2 rounded-xl border border-error/30 bg-error/8 px-4 py-3 text-xs text-error"><AlertCircle className="h-4 w-4" />{error}</div>}
           {step === "source" && <SourceStep onServer={() => setSourceMode("server")} />}
           {step === "planning" && <PlanningStep path={path} useAgent={useAgent} pending={pending} onPathChange={setPath} onAgentChange={setUseAgent} onSubmit={createPlan} onBack={() => setSourceMode(null)} />}
-          {step === "review" && plan && <ReviewStep plan={plan} />}
+          {step === "review" && plan && <ReviewStep plan={plan} pending={pending} onApprove={() => setConfirmation("approve")} />}
+          {step === "execution" && run && <ExecutionStep run={run} pending={pending} onExecute={() => perform("execute")} onEvaluate={() => perform("evaluate")} />}
+          {step === "evaluation" && evaluation && <EvaluationStep report={evaluation} onRestart={restart} />}
+          {step === "release" && run && <ReleaseStep run={run} report={evaluation} activeVersion={activeVersion} pending={pending} onPromote={() => setConfirmation("promote")} onRollback={() => setConfirmation("rollback")} />}
         </main>
         <WorkbenchSummary plan={plan} run={run} activeVersion={activeVersion} />
       </div>
+      {confirmation === "approve" && <ConfirmDialog title="确认批准计划" description="批准后该 Run 才能执行切片和隔离索引。源文件变化仍会使计划失效。" confirmLabel="确认批准" onConfirm={() => perform("approve")} onCancel={() => setConfirmation(null)} />}
+      {confirmation === "promote" && <ConfirmDialog title="确认发布活动版本" description="系统将原子切换当前租户的活动索引，Search 与 Ask 会立即使用该版本。" confirmLabel="确认发布" onConfirm={() => perform("promote")} onCancel={() => setConfirmation(null)} />}
+      {confirmation === "rollback" && <ConfirmDialog title="确认回滚上一版本" description="仅当直接上一 collection 仍完整存在时才会切换活动指针。" confirmLabel="确认回滚" onConfirm={() => perform("rollback")} onCancel={() => setConfirmation(null)} />}
     </div>
   );
 }

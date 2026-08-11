@@ -21,7 +21,9 @@ export function deriveWorkbenchState({
     return { step: "release", actions: ["promote"], readOnly: false };
   }
   if (run.status === "evaluating") {
-    return { step: "evaluation", actions: ["evaluate"], readOnly: false };
+    return evaluation
+      ? { step: "evaluation", actions: ["restart"], readOnly: true }
+      : { step: "execution", actions: ["evaluate"], readOnly: false };
   }
   if (run.status === "promoted") {
     const isActive = activeVersion?.run_id === run.run_id;
