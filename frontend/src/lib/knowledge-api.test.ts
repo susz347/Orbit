@@ -1,0 +1,86 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { createKnowledgeApi, KnowledgeApiError } from "./knowledge-api";
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+describe("Knowledge API", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem("orbit_token", "token-7");
+  });
+
+  it("calls the complete run lifecycle with authentication", async () => {
+    const fetcher = vi.fn().mockResolvedValue(jsonResponse({ run_id: "r1" }));
+    const api = createKnowledgeApi(fetcher);
+
+    await api.planFolder({ path: "fixtures", use_agent: false });
+    await api.approve("r1");
+    await api.execute("r1");
+    await api.evaluate("r1");
+    await api.promote("r1");
+    await api.rollback("r1");
+
+    expect(fetcher.mock.calls.map(([url]) => new URL(url).pathname)).toEqual([
+      "/api/knowledge/plan-folder",
+      "/api/knowledge/runs/r1/approve",
+      "/api/knowledge/runs/r1/execute",
+      "/api/knowledge/runs/r1/evaluate",
+      "/api/knowledge/runs/r1/promote",
+      "/api/knowledge/runs/r1/rollback",
+    ]);
+    for (const [, options] of fetcher.mock.calls) {
+      expect(options.headers.Authorization).toBe("Bearer token-7");
+    }
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({
+      path: "fixtures",
+      use_agent: false,
+    });
+  });
+
+  it("encodes run identifiers before building URLs", async () => {
+    const fetcher = vi.fn().mockResolvedValue(jsonResponse({ run_id: "r/1" }));
+    const api = createKnowledgeApi(fetcher);
+
+    await api.getRun("r/1");
+
+    expect(fetcher.mock.calls[0][0]).toMatch(/runs\/r%2F1$/);
+  });
+
+  it("preserves stable backend error details", async () => {
+    const api = createKnowledgeApi(
+      vi.fn().mockResolvedValue(jsonResponse({ detail: "run_not_active" }, 409)),
+    );
+
+    await expect(api.rollback("r1")).rejects.toEqual(
+      new KnowledgeApiError(409, "run_not_active"),
+    );
+  });
+
+  it("lists runs and reads evaluation and active version", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ items: [], next_cursor: null }))
+      .mockResolvedValueOnce(jsonResponse({ status: "passed" }))
+      .mockResolvedValueOnce(jsonResponse({ legacy: true }));
+    const api = createKnowledgeApi(fetcher);
+
+    await api.listRuns();
+    await api.getEvaluation("r1");
+    await api.getActiveVersion();
+
+    expect(fetcher.mock.calls.map(([url]) => {
+      const parsed = new URL(url);
+      return `${parsed.pathname}${parsed.search}`;
+    })).toEqual([
+      "/api/knowledge/runs?limit=20",
+      "/api/knowledge/runs/r1/evaluation",
+      "/api/knowledge/active-version",
+    ]);
+  });
+});
