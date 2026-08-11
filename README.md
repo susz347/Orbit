@@ -31,7 +31,9 @@ FolderPlan → KnowledgeRun → 人工审批
         ↓
 按租户与 run_id 隔离的 staging collection
         ↓
-等待 3.3 离线评测与发布决策
+版本化离线检索评测与确定性质量门禁
+        ↓
+原子发布活动索引 → Search / Ask → 可回滚上一版本
 ```
 
 当前已完成：
@@ -45,8 +47,11 @@ FolderPlan → KnowledgeRun → 人工审批
 - Markdown、DOCX、XLSX、文本 PDF 与扫描 PDF 策略 Executor；扫描 PDF 通过可注入 OCR Adapter 执行，未配置 OCR 时明确阻塞。
 - Chunk ID 由运行、源文件哈希、策略和源定位确定性生成，同一运行重试不会重复创建向量。
 - 批准后的运行只写入按租户与 `run_id` 隔离的 ChromaDB staging collection；任一文档失败都会删除整个 staging 并把审计写入数归零。
+- 版本化评测集计算来源 Hit@5、Locator Hit@5、MRR 与 nDCG；关键问题未命中或指标未达标时禁止发布。
+- 评测报告只持久化指标、Chunk ID 与来源定位，不把 Chunk 原文或 Embedding 写入 SQLite。
+- 通过门禁的运行可原子切换租户活动索引指针；Search、Ask 与语义缓存跟随活动版本，并可回滚到仍完整存在的直接上一版本。
 
-> **当前边界：** 第三阶段 3.2 已能把批准计划执行到隔离的 staging collection，成功状态停在 `evaluating`。staging 不对现有搜索接口可见，活动知识库和版本指针不会变化；只有后续 3.3 离线评测通过后才允许发布，回滚也在后续子阶段实现。
+> **当前边界：** 第三阶段 3.3 后端 RAG 闭环已经完成。文件夹可依次执行计划、审批、隔离索引、离线评测、发布和回滚；旧上传接口仍写入 legacy collection 以保持兼容。3.4 只负责把这些能力接入 Knowledge Workbench UI，不再新增第二条入库流水线。
 
 测试资产位于：
 
@@ -215,6 +220,11 @@ LLM 生成 → SSE 流式返回 → 前端渲染
 | `/api/knowledge/runs/{run_id}` | GET | 查询当前用户的 KnowledgeRun 状态 |
 | `/api/knowledge/runs/{run_id}/approve` | POST | 校验源文件未变化后批准计划，此步骤不写向量库 |
 | `/api/knowledge/runs/{run_id}/execute` | POST | 执行批准计划并写入隔离 staging，等待离线评测 |
+| `/api/knowledge/runs/{run_id}/evaluate` | POST | 对 staging 运行版本化离线检索评测 |
+| `/api/knowledge/runs/{run_id}/evaluation` | GET | 查询不含 Chunk 原文的评测报告 |
+| `/api/knowledge/runs/{run_id}/promote` | POST | 门禁通过后原子发布活动索引版本 |
+| `/api/knowledge/active-version` | GET | 查询当前租户活动或 legacy 索引版本 |
+| `/api/knowledge/runs/{run_id}/rollback` | POST | 回滚当前版本到仍存在的直接上一版本 |
 | `/api/knowledge/strategy` | GET/PATCH | RAG 策略管理 |
 | `/api/knowledge/logos` | POST | 对话总结 |
 | `/api/auth/register` | POST | 注册 (限流) |
@@ -305,9 +315,25 @@ curl -X POST http://localhost:8001/api/knowledge/runs/<run_id>/approve \
 # 执行已批准计划；仅写入隔离 staging，成功状态为 evaluating
 curl -X POST http://localhost:8001/api/knowledge/runs/<run_id>/execute \
   -H "Authorization: Bearer <token>"
+
+# 评测隔离索引；未达门禁的报告状态为 rejected，不能发布
+curl -X POST http://localhost:8001/api/knowledge/runs/<run_id>/evaluate \
+  -H "Authorization: Bearer <token>"
+
+# 查看评测报告并发布通过门禁的版本
+curl http://localhost:8001/api/knowledge/runs/<run_id>/evaluation \
+  -H "Authorization: Bearer <token>"
+curl -X POST http://localhost:8001/api/knowledge/runs/<run_id>/promote \
+  -H "Authorization: Bearer <token>"
+
+# 查看当前活动版本；必要时回滚到直接上一完整版本
+curl http://localhost:8001/api/knowledge/active-version \
+  -H "Authorization: Bearer <token>"
+curl -X POST http://localhost:8001/api/knowledge/runs/<run_id>/rollback \
+  -H "Authorization: Bearer <token>"
 ```
 
-执行前会再次校验完整文件清单与内容哈希。成功响应中的 `staging_collection`、`chunk_count` 与 `vector_store_writes` 用于审计，不代表内容已经发布；OCR、解析、Embedding 或存储失败会返回脱敏错误分类并清理该运行的全部 staging 数据。
+执行前会再次校验完整文件清单与内容哈希。成功响应中的 `staging_collection`、`chunk_count` 与 `vector_store_writes` 用于审计，不代表内容已经发布；只有评测通过并显式调用 `promote` 后 Search/Ask 才会使用该版本。OCR、解析、Embedding 或存储失败会返回脱敏错误分类并清理该运行的全部 staging 数据。
 
 ## License
 

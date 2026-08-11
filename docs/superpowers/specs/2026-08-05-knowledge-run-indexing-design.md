@@ -57,7 +57,7 @@ planned         -> approved | rejected | invalidated
 review_required -> approved | rejected | invalidated
 approved        -> indexing | invalidated
 indexing        -> evaluating | failed
-evaluating      -> promoted | failed
+evaluating      -> promoted | rejected | failed
 promoted        -> rolled_back
 ```
 
@@ -91,6 +91,8 @@ chunk_index, page, sheet, heading_path, metadata
 
 ## 3.3 评测、发布与回滚
 
+**实现状态：已完成（2026-08-10）。**
+
 使用 `knowledge/evals/questions.jsonl` 运行第一版确定性检索评测，至少记录：
 
 - 期望来源 Hit@5
@@ -101,6 +103,8 @@ chunk_index, page, sheet, heading_path, metadata
 - 索引和检索耗时
 
 只有评测门禁通过的运行可进入 `promoted`。发布通过更新知识空间的活动索引指针完成，不复制向量。回滚只允许切换到已存在且完整的历史索引版本。
+
+评测门禁固定为来源 Hit@5=100%、Locator Hit@5≥90%、MRR≥0.80、nDCG≥0.90，且每个关键用例都必须命中来源与定位，门禁值不接受 HTTP 参数覆盖。发布在一个 SQLite 事务内写入发布记录、切换租户活动指针并转换 Run 状态，不复制向量；Search/Ask 通过活动指针解析 collection，未发布租户继续回退到 `user_<id>` legacy collection。语义答案缓存按租户和活动 collection 隔离。
 
 ## 3.4 Knowledge Workbench
 
@@ -125,4 +129,3 @@ chunk_index, page, sheet, heading_path, metadata
 - 评测失败不能发布，已发布版本可以回滚。
 - 前端能完成计划、审批、执行、评测、发布和回滚流程。
 - 每个子阶段均保持既有 Knowledge Agent 回归测试通过。
-

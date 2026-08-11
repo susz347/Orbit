@@ -167,7 +167,7 @@ def api_evaluate_run(
     """Evaluate the isolated staging index against the versioned retrieval set."""
 
     try:
-        return evaluate_run(
+        report = evaluate_run(
             run_id,
             database_path=_database_path(),
             user_id=current_user["user_id"],
@@ -178,6 +178,12 @@ def api_evaluate_run(
         raise HTTPException(status_code=404, detail="KnowledgeRun 不存在") from exc
     except (InvalidRunTransition, RunStateConflict) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if report.status == "failed":
+        raise HTTPException(
+            status_code=422,
+            detail=report.model_dump(mode="json"),
+        )
+    return report
 
 
 @router.get("/runs/{run_id}/evaluation")
@@ -209,7 +215,8 @@ def api_promote_run(
             collection_exists=lambda name: store.collection_exists(name),
         )
     except ReleaseConflict as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        status_code = 404 if str(exc) == "run_not_found" else 409
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     except StorageFailed as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

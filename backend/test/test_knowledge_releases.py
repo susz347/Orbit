@@ -84,6 +84,7 @@ def test_promote_and_rollback_switch_active_pointer_atomically(tmp_path):
     assert active.run_id == "first"
     assert active.collection_name == staging_collection_name("first", 7)
     assert active.generation == 3
+    assert active == get_active_index(user_id=7, database_path=database)
     assert get_run("second", database_path=database, user_id=7).status == "rolled_back"
 
 
