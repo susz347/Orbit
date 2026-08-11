@@ -213,6 +213,32 @@ def test_run_can_be_read_and_approved_without_vector_writes(tmp_path, monkeypatc
     assert approved.json()["vector_store_writes"] == 0
 
 
+def test_planned_run_detail_restores_documents_for_current_tenant(tmp_path, monkeypatch):
+    knowledge_root = tmp_path / "knowledge"
+    shutil.copytree(SOURCE_KNOWLEDGE / "fixtures", knowledge_root / "fixtures")
+    app = FastAPI()
+    app.include_router(knowledge_plan.router)
+    current = {"user_id": 42}
+    app.dependency_overrides[get_current_user] = lambda: current
+    monkeypatch.setattr(knowledge_plan, "_KNOWLEDGE_ROOT", knowledge_root)
+    monkeypatch.setattr(
+        knowledge_plan, "_database_path", lambda: tmp_path / "audit.sqlite3"
+    )
+    client = TestClient(app)
+    planned = client.post(
+        "/api/knowledge/plan-folder",
+        json={"path": "fixtures", "use_agent": False},
+    ).json()
+
+    restored = client.get(f"/api/knowledge/runs/{planned['run_id']}/plan")
+    current["user_id"] = 99
+    hidden = client.get(f"/api/knowledge/runs/{planned['run_id']}/plan")
+
+    assert restored.status_code == 200
+    assert restored.json() == planned
+    assert hidden.status_code == 404
+
+
 def test_approve_endpoint_returns_conflict_after_source_change(tmp_path, monkeypatch):
     knowledge_root = tmp_path / "knowledge"
     shutil.copytree(SOURCE_KNOWLEDGE / "fixtures", knowledge_root / "fixtures")

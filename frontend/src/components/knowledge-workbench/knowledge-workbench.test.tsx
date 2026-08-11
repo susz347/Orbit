@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { KnowledgeApi } from "@/lib/knowledge-api";
 import type { EvaluationReport, FolderPlan, KnowledgeRun } from "./workbench-types";
@@ -112,6 +112,7 @@ function fakeApi(overrides: Partial<KnowledgeApi> = {}): KnowledgeApi {
   return {
     listRuns: vi.fn().mockResolvedValue({ items: [], next_cursor: null }),
     getRun: vi.fn(),
+    getPlan: vi.fn(),
     planFolder: vi.fn().mockResolvedValue(REVIEW_PLAN),
     approve: vi.fn(),
     execute: vi.fn(),
@@ -132,6 +133,23 @@ function fakeApi(overrides: Partial<KnowledgeApi> = {}): KnowledgeApi {
 }
 
 describe("KnowledgeWorkbench server planning", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("restores a persisted review run with its immutable plan", async () => {
+    localStorage.setItem("orbit_knowledge_run_id", RUN_BASE.run_id);
+    const api = fakeApi({
+      listRuns: vi.fn().mockResolvedValue({ items: [RUN_BASE], next_cursor: null }),
+      getRun: vi.fn().mockResolvedValue(RUN_BASE),
+      getPlan: vi.fn().mockResolvedValue(REVIEW_PLAN),
+    });
+
+    render(<KnowledgeWorkbench api={api} />);
+
+    expect(await screen.findByText("scanned-notice.pdf")).toBeVisible();
+    expect(api.getRun).toHaveBeenCalledWith(RUN_BASE.run_id);
+    expect(api.getPlan).toHaveBeenCalledWith(RUN_BASE.run_id);
+  });
+
   it("plans a server folder and opens forced-review documents", async () => {
     const user = userEvent.setup();
     const api = fakeApi();

@@ -17,7 +17,13 @@ from ..knowledge_agent.evaluation_dataset import load_evaluation_cases
 from ..knowledge_agent.evaluation_repository import get_evaluation_report
 from ..knowledge_agent.executors.registry import build_executor_registry
 from ..knowledge_agent.pipeline import plan_folder
-from ..knowledge_agent.repository import InvalidRunCursor, get_run, list_runs
+from ..knowledge_agent.models import FolderPlan
+from ..knowledge_agent.repository import (
+    InvalidRunCursor,
+    get_run,
+    list_runs,
+    load_planned_documents,
+)
 from ..knowledge_agent.releases import (
     ReleaseConflict,
     get_active_index,
@@ -89,6 +95,34 @@ def api_get_run(
     if run is None:
         raise HTTPException(status_code=404, detail="KnowledgeRun 不存在")
     return run
+
+
+@router.get("/runs/{run_id}/plan", response_model=FolderPlan)
+def api_get_run_plan(
+    run_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Restore the immutable strategy plan for an authenticated tenant."""
+
+    run = get_run(
+        run_id,
+        database_path=_database_path(),
+        user_id=current_user["user_id"],
+    )
+    if run is None:
+        raise HTTPException(status_code=404, detail="KnowledgeRun not found")
+    documents = load_planned_documents(
+        run_id,
+        database_path=_database_path(),
+        user_id=current_user["user_id"],
+    )
+    return FolderPlan(
+        run_id=run.run_id,
+        folder_path=run.folder_path,
+        status=run.status,
+        document_count=run.document_count,
+        documents=documents,
+    )
 
 
 @router.get("/runs")

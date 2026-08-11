@@ -48,8 +48,10 @@ describe("Knowledge API", () => {
     const api = createKnowledgeApi(fetcher);
 
     await api.getRun("r/1");
+    await api.getPlan("r/1");
 
     expect(fetcher.mock.calls[0][0]).toMatch(/runs\/r%2F1$/);
+    expect(fetcher.mock.calls[1][0]).toMatch(/runs\/r%2F1\/plan$/);
   });
 
   it("preserves stable backend error details", async () => {
