@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from ..config import settings
@@ -17,7 +17,7 @@ from ..knowledge_agent.evaluation_dataset import load_evaluation_cases
 from ..knowledge_agent.evaluation_repository import get_evaluation_report
 from ..knowledge_agent.executors.registry import build_executor_registry
 from ..knowledge_agent.pipeline import plan_folder
-from ..knowledge_agent.repository import get_run
+from ..knowledge_agent.repository import InvalidRunCursor, get_run, list_runs
 from ..knowledge_agent.releases import (
     ReleaseConflict,
     get_active_index,
@@ -89,6 +89,25 @@ def api_get_run(
     if run is None:
         raise HTTPException(status_code=404, detail="KnowledgeRun 不存在")
     return run
+
+
+@router.get("/runs")
+def api_list_runs(
+    limit: int = Query(default=20, ge=1, le=100),
+    cursor: str | None = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """Return one stable, tenant-scoped page for workbench recovery."""
+
+    try:
+        return list_runs(
+            database_path=_database_path(),
+            user_id=current_user["user_id"],
+            limit=limit,
+            cursor=cursor,
+        )
+    except InvalidRunCursor as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/runs/{run_id}/approve")

@@ -96,6 +96,51 @@ def test_plan_folder_endpoint_requires_authentication():
     assert response.status_code == 401
 
 
+def test_run_list_endpoint_requires_authentication():
+    app = FastAPI()
+    app.include_router(knowledge_plan.router)
+
+    response = TestClient(app).get("/api/knowledge/runs")
+
+    assert response.status_code == 401
+
+
+def test_run_list_endpoint_returns_only_current_tenant_runs(tmp_path, monkeypatch):
+    app = FastAPI()
+    app.include_router(knowledge_plan.router)
+    app.dependency_overrides[get_current_user] = lambda: {"user_id": 42}
+    monkeypatch.setattr(
+        knowledge_plan, "_database_path", lambda: tmp_path / "audit.sqlite3"
+    )
+    client = TestClient(app)
+    planned = client.post(
+        "/api/knowledge/plan-folder",
+        json={"path": "fixtures", "use_agent": False},
+    ).json()
+
+    response = client.get("/api/knowledge/runs", params={"limit": 20})
+
+    assert response.status_code == 200
+    assert [item["run_id"] for item in response.json()["items"]] == [planned["run_id"]]
+    assert response.json()["next_cursor"] is None
+
+
+def test_run_list_endpoint_rejects_invalid_cursor(tmp_path, monkeypatch):
+    app = FastAPI()
+    app.include_router(knowledge_plan.router)
+    app.dependency_overrides[get_current_user] = lambda: {"user_id": 42}
+    monkeypatch.setattr(
+        knowledge_plan, "_database_path", lambda: tmp_path / "audit.sqlite3"
+    )
+
+    response = TestClient(app).get(
+        "/api/knowledge/runs", params={"cursor": "invalid"}
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "invalid_run_cursor"
+
+
 def test_plan_folder_endpoint_returns_dry_run_without_vector_writes(tmp_path, monkeypatch):
     app = FastAPI()
     app.include_router(knowledge_plan.router)

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import json
 import sqlite3
 from pathlib import Path
 
@@ -10,11 +13,16 @@ from .models import (
     CorpusProfile,
     FolderPlan,
     KnowledgeRunRecord,
+    KnowledgeRunPage,
     PlannedDocument,
     RunStatus,
     StrategyDecision,
 )
 from .run_state import transition_status
+
+
+class InvalidRunCursor(ValueError):
+    """Raised for malformed or non-canonical run-list cursors."""
 
 
 def _connect(database_path: Path) -> sqlite3.Connection:
@@ -167,6 +175,80 @@ def get_run(
         indexing_started_at=row[13],
         indexing_completed_at=row[14],
     )
+
+
+def _encode_run_cursor(created_at: str, run_id: str) -> str:
+    payload = json.dumps([created_at, run_id], separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(payload).decode().rstrip("=")
+
+
+def _decode_run_cursor(cursor: str) -> tuple[str, str]:
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded).decode())
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError, binascii.Error) as exc:
+        raise InvalidRunCursor("invalid_run_cursor") from exc
+    if (
+        not isinstance(payload, list)
+        or len(payload) != 2
+        or not all(isinstance(item, str) and item for item in payload)
+    ):
+        raise InvalidRunCursor("invalid_run_cursor")
+    return payload[0], payload[1]
+
+
+def list_runs(
+    *,
+    database_path: Path,
+    user_id: int | None,
+    limit: int = 20,
+    cursor: str | None = None,
+) -> KnowledgeRunPage:
+    """List one tenant's newest runs with stable keyset pagination."""
+
+    if limit < 1 or limit > 100:
+        raise ValueError("invalid_run_limit")
+    cursor_values = _decode_run_cursor(cursor) if cursor is not None else None
+    with _connect(database_path) as connection:
+        _ensure_schema(connection)
+        rows = connection.execute(
+            """
+            SELECT run_id, user_id, folder_path, status, dry_run,
+                   vector_store_writes, document_count, created_at,
+                   updated_at, approved_at, staging_collection, chunk_count,
+                   execution_error, indexing_started_at, indexing_completed_at
+            FROM knowledge_agent_runs
+            WHERE user_id IS ?
+              AND (? IS NULL OR created_at < ? OR (created_at = ? AND run_id < ?))
+            ORDER BY created_at DESC, run_id DESC
+            LIMIT ?
+            """,
+            (
+                user_id,
+                cursor_values[0] if cursor_values else None,
+                cursor_values[0] if cursor_values else None,
+                cursor_values[0] if cursor_values else None,
+                cursor_values[1] if cursor_values else None,
+                limit + 1,
+            ),
+        ).fetchall()
+    has_more = len(rows) > limit
+    visible = rows[:limit]
+    items = tuple(
+        KnowledgeRunRecord(
+            run_id=row[0], user_id=row[1], folder_path=row[2], status=row[3],
+            dry_run=bool(row[4]), vector_store_writes=row[5],
+            document_count=row[6], created_at=row[7], updated_at=row[8],
+            approved_at=row[9], staging_collection=row[10], chunk_count=row[11],
+            execution_error=row[12], indexing_started_at=row[13],
+            indexing_completed_at=row[14],
+        )
+        for row in visible
+    )
+    next_cursor = None
+    if has_more and visible:
+        next_cursor = _encode_run_cursor(visible[-1][7], visible[-1][0])
+    return KnowledgeRunPage(items=items, next_cursor=next_cursor)
 
 
 def load_planned_documents(
