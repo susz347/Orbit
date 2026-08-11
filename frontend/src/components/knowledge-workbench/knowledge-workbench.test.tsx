@@ -113,6 +113,11 @@ function fakeApi(overrides: Partial<KnowledgeApi> = {}): KnowledgeApi {
     listRuns: vi.fn().mockResolvedValue({ items: [], next_cursor: null }),
     getRun: vi.fn(),
     getPlan: vi.fn(),
+    createImport: vi.fn(),
+    uploadImportFile: vi.fn(),
+    completeImport: vi.fn(),
+    getImport: vi.fn(),
+    deleteImport: vi.fn(),
     planFolder: vi.fn().mockResolvedValue(REVIEW_PLAN),
     approve: vi.fn(),
     execute: vi.fn(),
@@ -134,6 +139,60 @@ function fakeApi(overrides: Partial<KnowledgeApi> = {}): KnowledgeApi {
 
 describe("KnowledgeWorkbench server planning", () => {
   beforeEach(() => localStorage.clear());
+
+  it("imports a local folder and continues through the existing planner", async () => {
+    const user = userEvent.setup();
+    const uploading = {
+      import_id: "import-1", user_id: 7, status: "uploading" as const,
+      file_count: 0, total_size: 0, manifest_hash: null, relative_path: null,
+      error_category: null, created_at: "2026-08-11T00:00:00Z", completed_at: null, files: [],
+    };
+    const ready = {
+      ...uploading, status: "ready" as const, file_count: 2,
+      relative_path: "imports/ready/t7/import-1", manifest_hash: "a".repeat(64),
+    };
+    const api = fakeApi({
+      createImport: vi.fn().mockResolvedValue(uploading),
+      uploadImportFile: vi.fn().mockResolvedValue({ ...uploading, file_count: 1 }),
+      completeImport: vi.fn().mockResolvedValue(ready),
+    });
+    render(<KnowledgeWorkbench api={api} />);
+    await user.click(screen.getByRole("button", { name: "本地文件夹" }));
+    const input = screen.getByLabelText("选择本地文件夹");
+    const md = new File(["# doc"], "doc.md", { type: "text/markdown" });
+    const pdf = new File(["pdf"], "guide.pdf", { type: "application/pdf" });
+    Object.defineProperty(md, "webkitRelativePath", { value: "handbook/doc.md" });
+    Object.defineProperty(pdf, "webkitRelativePath", { value: "handbook/guide.pdf" });
+    await user.upload(input, [md, pdf]);
+
+    expect(await screen.findByDisplayValue("imports/ready/t7/import-1")).toBeVisible();
+    expect(api.uploadImportFile).toHaveBeenCalledTimes(2);
+    expect(api.completeImport).toHaveBeenCalledWith("import-1");
+    expect(screen.getByRole("button", { name: "生成策略计划" })).toBeEnabled();
+  });
+
+  it("stays on import and never plans when one file upload fails", async () => {
+    const user = userEvent.setup();
+    const uploading = {
+      import_id: "import-failed", user_id: 7, status: "uploading" as const,
+      file_count: 0, total_size: 0, manifest_hash: null, relative_path: null,
+      error_category: null, created_at: "2026-08-11T00:00:00Z", completed_at: null, files: [],
+    };
+    const api = fakeApi({
+      createImport: vi.fn().mockResolvedValue(uploading),
+      uploadImportFile: vi.fn().mockRejectedValue(new Error("file_size_limit")),
+      completeImport: vi.fn(),
+    });
+    render(<KnowledgeWorkbench api={api} />);
+    await user.click(screen.getByRole("button", { name: "本地文件夹" }));
+    const file = new File(["# large"], "large.md", { type: "text/markdown" });
+    Object.defineProperty(file, "webkitRelativePath", { value: "docs/large.md" });
+    await user.upload(screen.getByLabelText("选择本地文件夹"), file);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("file_size_limit");
+    expect(api.completeImport).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("选择本地文件夹")).toBeEnabled();
+  });
 
   it("restores a persisted review run with its immutable plan", async () => {
     localStorage.setItem("orbit_knowledge_run_id", RUN_BASE.run_id);
