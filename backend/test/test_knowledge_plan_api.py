@@ -305,3 +305,31 @@ def test_evaluate_report_promote_active_and_rollback_endpoints(tmp_path, monkeyp
     assert client.post("/api/knowledge/runs/run-1/promote").json()["generation"] == 1
     assert client.get("/api/knowledge/active-version").json()["collection_name"] == "kr_active"
     assert client.post("/api/knowledge/runs/run-1/rollback").json()["legacy"] is True
+
+
+def test_evaluation_infrastructure_failure_returns_422(tmp_path, monkeypatch):
+    app = FastAPI()
+    app.include_router(knowledge_plan.router)
+    app.dependency_overrides[get_current_user] = lambda: {"user_id": 42}
+    monkeypatch.setattr(
+        knowledge_plan, "_database_path", lambda: tmp_path / "audit.sqlite3"
+    )
+    monkeypatch.setattr(knowledge_plan, "load_evaluation_cases", lambda path: ())
+    monkeypatch.setattr(knowledge_plan, "StagingStore", lambda: object())
+    monkeypatch.setattr(
+        knowledge_plan,
+        "evaluate_run",
+        lambda *a, **k: EvaluationReport(
+            attempt_id="attempt-failed", run_id="run-1", status="failed",
+            dataset_version="rag-retrieval.v1", source_hit_rate_at_5=0,
+            locator_hit_rate_at_5=0, mean_reciprocal_rank=0,
+            mean_ndcg_at_5=0, expected_vector_count=1,
+            actual_vector_count=0, error_category="storage_error",
+            duration_ms=1,
+        ),
+    )
+
+    response = TestClient(app).post("/api/knowledge/runs/run-1/evaluate")
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["error_category"] == "storage_error"

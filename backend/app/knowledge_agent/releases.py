@@ -108,9 +108,6 @@ def promote_run(
     collection_exists: Callable[[str], bool],
 ) -> ActiveIndexVersion:
     collection_name = staging_collection_name(run_id, user_id)
-    if not collection_exists(collection_name):
-        raise ReleaseConflict("staging_collection_missing")
-
     with _connect(database_path) as connection:
         _ensure_release_schema(connection)
         connection.execute("BEGIN IMMEDIATE")
@@ -125,6 +122,8 @@ def promote_run(
             raise ReleaseConflict("run_not_evaluating")
         if run[1] != collection_name:
             raise ReleaseConflict("staging_collection_mismatch")
+        if not collection_exists(collection_name):
+            raise ReleaseConflict("staging_collection_missing")
         report = connection.execute(
             "SELECT status FROM knowledge_evaluation_runs "
             "WHERE run_id = ? AND user_id IS ?",
@@ -222,7 +221,4 @@ def rollback_run(
         )
         if cursor.rowcount != 1:
             raise ReleaseConflict("concurrent_run_update")
-        return ActiveIndexVersion(
-            run_id=previous_run_id, collection_name=previous_collection,
-            generation=generation, legacy=previous_run_id is None,
-        )
+        return _read_active(connection, user_id)
