@@ -52,7 +52,42 @@ export function KnowledgeWorkbench({ api = knowledgeApi }: { api?: KnowledgeApi 
 
   useEffect(() => {
     let live = true;
-    api.getActiveVersion().then((version) => live && setActiveVersion(version)).catch(() => undefined);
+    async function restore() {
+      const [activeResult, runsResult] = await Promise.allSettled([
+        api.getActiveVersion(),
+        api.listRuns(),
+      ]);
+      if (!live) return;
+      if (activeResult.status === "fulfilled") setActiveVersion(activeResult.value);
+      if (runsResult.status !== "fulfilled") return;
+
+      const storedRunId = localStorage.getItem("orbit_knowledge_run_id");
+      const recentRunId = runsResult.value.items[0]?.run_id;
+      const candidateIds = [...new Set([storedRunId, recentRunId].filter(Boolean))] as string[];
+      for (const runId of candidateIds) {
+        try {
+          const restoredRun = await api.getRun(runId);
+          if (!live) return;
+          setRun(restoredRun);
+          setSourceMode("server");
+          localStorage.setItem("orbit_knowledge_run_id", runId);
+          if (restoredRun.status === "planned" || restoredRun.status === "review_required") {
+            setPlan(await api.getPlan(runId));
+          } else if (["evaluating", "rejected", "promoted"].includes(restoredRun.status)) {
+            try {
+              const report = await api.getEvaluation(runId);
+              if (live) setEvaluation(report);
+            } catch {
+              // An evaluating run legitimately has no report before the evaluation action.
+            }
+          }
+          return;
+        } catch {
+          if (runId === storedRunId) localStorage.removeItem("orbit_knowledge_run_id");
+        }
+      }
+    }
+    void restore();
     return () => { live = false; };
   }, [api]);
 

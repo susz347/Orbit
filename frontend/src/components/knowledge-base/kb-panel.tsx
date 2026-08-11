@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { Upload, FileText, Search, Trash2, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { cn, formatSize } from "@/lib/utils";
 import { knowledge, API_BASE } from "@/lib/api";
+import { KnowledgeWorkbench } from "@/components/knowledge-workbench/knowledge-workbench";
 
 interface DocRecord {
   filename: string;
@@ -13,6 +14,33 @@ interface DocRecord {
 }
 
 export function KnowledgeBasePanel() {
+  const [view, setView] = useState<"workbench" | "legacy">("workbench");
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex items-center justify-end gap-1 border-b border-border/50 bg-[#0b1324] px-4 py-2">
+        <button
+          type="button"
+          onClick={() => setView("workbench")}
+          className={cn("rounded-lg px-3 py-1.5 text-xs", view === "workbench" ? "bg-primary text-white" : "text-muted hover:bg-surface")}
+        >
+          RAG Workbench
+        </button>
+        <button
+          type="button"
+          onClick={() => setView("legacy")}
+          className={cn("rounded-lg px-3 py-1.5 text-xs", view === "legacy" ? "bg-primary text-white" : "text-muted hover:bg-surface")}
+        >
+          旧版上传
+        </button>
+      </div>
+      <div className="min-h-0 flex-1">
+        {view === "workbench" ? <KnowledgeWorkbench /> : <LegacyKnowledgeBasePanel />}
+      </div>
+    </div>
+  );
+}
+
+function LegacyKnowledgeBasePanel() {
   const [documents, setDocuments] = useState<DocRecord[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<"idle" | "success" | "error">("idle");

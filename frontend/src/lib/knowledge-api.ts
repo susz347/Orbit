@@ -28,6 +28,7 @@ export class KnowledgeApiError extends Error {
 export interface KnowledgeApi {
   listRuns(limit?: number, cursor?: string): Promise<KnowledgeRunPage>;
   getRun(runId: string): Promise<KnowledgeRun>;
+  getPlan(runId: string): Promise<FolderPlan>;
   planFolder(input: PlanFolderInput): Promise<FolderPlan>;
   approve(runId: string): Promise<KnowledgeRun>;
   execute(runId: string): Promise<KnowledgeRun>;
@@ -75,6 +76,7 @@ export function createKnowledgeApi(fetcher: Fetcher = fetch): KnowledgeApi {
       return request<KnowledgeRunPage>(`/api/knowledge/runs?${params}`);
     },
     getRun: (runId) => request<KnowledgeRun>(runPath(runId)),
+    getPlan: (runId) => request<FolderPlan>(runPath(runId, "/plan")),
     planFolder: (input) =>
       request<FolderPlan>("/api/knowledge/plan-folder", {
         method: "POST",
