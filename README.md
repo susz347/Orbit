@@ -50,8 +50,21 @@ FolderPlan → KnowledgeRun → 人工审批
 - 版本化评测集计算来源 Hit@5、Locator Hit@5、MRR 与 nDCG；关键问题未命中或指标未达标时禁止发布。
 - 评测报告只持久化指标、Chunk ID 与来源定位，不把 Chunk 原文或 Embedding 写入 SQLite。
 - 通过门禁的运行可原子切换租户活动索引指针；Search、Ask 与语义缓存跟随活动版本，并可回滚到仍完整存在的直接上一版本。
+- Knowledge Workbench 七步界面已贯通服务器目录与本地文件夹，支持刷新恢复、策略审阅、审批、评测、发布和回滚。
+- 本地文件夹以租户隔离的不可变 `ImportBatch` 导入；逐文件校验相对路径、格式、大小和 SHA-256，冻结后复用同一条 KnowledgeRun 流水线。
 
-> **当前边界：** 第三阶段 3.3 后端 RAG 闭环已经完成。文件夹可依次执行计划、审批、隔离索引、离线评测、发布和回滚；旧上传接口仍写入 legacy collection 以保持兼容。3.4 只负责把这些能力接入 Knowledge Workbench UI，不再新增第二条入库流水线。
+> **当前边界：** 3.4 Knowledge Workbench 主流程已完成。正式入库支持 `.md`、`.docx`、`.xlsx` 和 `.pdf`；旧单文件上传仍保留为 legacy 兼容入口，不参与 Knowledge Agent 的正式发布流程。
+
+### Knowledge Workbench 使用方式
+
+1. 登录后从左侧进入“知识库”，默认打开 `RAG Workbench`。
+2. 选择服务器 `knowledge/` 相对目录，或选择本地文件夹。
+3. 本地导入仅允许 PDF、Word、Excel 和 Markdown；单文件上限 25 MiB，单批次上限 250 MiB / 500 个文件。
+4. 冻结成功后生成 dry-run，审阅 Agent 建议、规则兜底和强制复核文件。
+5. 显式审批后执行隔离索引，运行离线评测；只有评测通过才能发布。
+6. 发布后 Search / Ask 原子切换到新版本，必要时可回滚到直接上一版本。
+
+页面只在 `localStorage` 保存最近的 Run ID，不保存文件内容、评测报告或向量。刷新后会按当前租户恢复 Run、评测和活动版本。
 
 测试资产位于：
 
@@ -217,6 +230,11 @@ LLM 生成 → SSE 流式返回 → 前端渲染
 | `/api/knowledge/ask` | POST | RAG 问答 |
 | `/api/knowledge/ask/stream` | GET | SSE 流式问答 |
 | `/api/knowledge/plan-folder` | POST | 生成文件夹 RAG 策略 dry-run，不写向量库 |
+| `/api/knowledge/imports` | POST | 创建当前租户的本地文件夹导入批次 |
+| `/api/knowledge/imports/{import_id}/files` | POST | 上传一个带受控相对路径的文件 |
+| `/api/knowledge/imports/{import_id}/complete` | POST | 校验并冻结批次，返回可规划的 `relative_path` |
+| `/api/knowledge/imports/{import_id}` | GET/DELETE | 查询批次，或删除尚未冻结的批次 |
+| `/api/knowledge/runs` | GET | 分页查询当前租户最近的 KnowledgeRun |
 | `/api/knowledge/runs/{run_id}` | GET | 查询当前用户的 KnowledgeRun 状态 |
 | `/api/knowledge/runs/{run_id}/approve` | POST | 校验源文件未变化后批准计划，此步骤不写向量库 |
 | `/api/knowledge/runs/{run_id}/execute` | POST | 执行批准计划并写入隔离 staging，等待离线评测 |
