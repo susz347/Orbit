@@ -1,4 +1,5 @@
 import re
+from typing import Union
 from pathlib import Path
 
 from docx import Document
@@ -23,7 +24,7 @@ class DocxLayoutAwareExecutor:
         headings: list[str] = []
         drafts: list[ChunkDraft] = []
         block_number = 0
-        shared_metadata: dict[str, str | int | float | bool] = {}
+        shared_metadata: dict[str, Union[str, int, float, bool]] = {}
         if profile.image_count:
             shared_metadata["document_image_count"] = profile.image_count
 

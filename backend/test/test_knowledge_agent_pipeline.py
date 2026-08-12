@@ -1,4 +1,5 @@
 import sqlite3
+from typing import Optional
 from pathlib import Path
 
 from app.knowledge_agent.models import AgentAttempt
@@ -9,7 +10,7 @@ FIXTURES = Path(__file__).resolve().parents[2] / "knowledge" / "fixtures"
 
 
 class RecordingAgent:
-    def __init__(self, failing_source: str | None = None):
+    def __init__(self, failing_source: Optional[str] = None):
         self.calls = []
         self.failing_source = failing_source
 

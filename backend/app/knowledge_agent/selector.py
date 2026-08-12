@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Optional
 
 from .catalog import STRATEGY_CATALOG, is_compatible
 from .models import CorpusProfile, StrategyDecision
@@ -34,7 +34,7 @@ def _fallback(profile: CorpusProfile) -> StrategyDecision:
 
 def _validated_agent_decision(
     profile: CorpusProfile, suggestion: Mapping[str, Any]
-) -> StrategyDecision | None:
+) -> Optional[StrategyDecision]:
     strategy_id = suggestion.get("strategy_id")
     confidence = suggestion.get("confidence")
     reason = suggestion.get("reason")
@@ -59,7 +59,7 @@ def _validated_agent_decision(
 
 
 def select_strategy(
-    profile: CorpusProfile, suggestion: Mapping[str, Any] | None = None
+    profile: CorpusProfile, suggestion: Optional[Mapping[str, Any]] = None
 ) -> StrategyDecision:
     """Accept only catalog-compatible Agent output; otherwise use safe rules."""
 

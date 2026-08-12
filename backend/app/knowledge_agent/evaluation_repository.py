@@ -1,4 +1,5 @@
 import json
+from typing import Optional
 from pathlib import Path
 
 from .evaluation_models import EvaluationCaseResult, EvaluationReport
@@ -49,7 +50,7 @@ def _ensure_evaluation_schema(connection) -> None:
 
 
 def save_evaluation_report(
-    report: EvaluationReport, *, database_path: Path, user_id: int | None
+    report: EvaluationReport, *, database_path: Path, user_id: Optional[int]
 ) -> None:
     with _connect(database_path) as connection:
         _ensure_evaluation_schema(connection)
@@ -96,8 +97,8 @@ def save_evaluation_report(
 
 
 def get_evaluation_report(
-    run_id: str, *, database_path: Path, user_id: int | None
-) -> EvaluationReport | None:
+    run_id: str, *, database_path: Path, user_id: Optional[int]
+) -> Optional[EvaluationReport]:
     with _connect(database_path) as connection:
         _ensure_evaluation_schema(connection)
         row = connection.execute(

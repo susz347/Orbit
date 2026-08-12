@@ -1,10 +1,9 @@
-from __future__ import annotations
 
 import hashlib
 import shutil
 import uuid
 from pathlib import Path, PurePosixPath
-from typing import BinaryIO
+from typing import BinaryIO, Optional
 
 from .import_models import ImportBatch, ImportFileRecord
 from .import_repository import add_file, create_batch, delete_batch, get_batch, mark_ready
@@ -33,15 +32,15 @@ class ImportValidationError(ImportErrorBase):
     pass
 
 
-def _tenant_key(user_id: int | None) -> str:
+def _tenant_key(user_id: Optional[int]) -> str:
     return hashlib.sha256(f"tenant:{user_id}".encode()).hexdigest()[:16]
 
 
-def _staging_dir(root: Path, user_id: int | None, import_id: str) -> Path:
+def _staging_dir(root: Path, user_id: Optional[int], import_id: str) -> Path:
     return root / "imports" / ".staging" / _tenant_key(user_id) / import_id
 
 
-def _ready_dir(root: Path, user_id: int | None, import_id: str) -> Path:
+def _ready_dir(root: Path, user_id: Optional[int], import_id: str) -> Path:
     return root / "imports" / "ready" / _tenant_key(user_id) / import_id
 
 
@@ -57,18 +56,18 @@ def _normalize_relative_path(value: str) -> str:
     return normalized
 
 
-def create_import(*, database_path: Path, knowledge_root: Path, user_id: int | None) -> ImportBatch:
+def create_import(*, database_path: Path, knowledge_root: Path, user_id: Optional[int]) -> ImportBatch:
     import_id = uuid.uuid4().hex
     batch = create_batch(import_id, database_path=database_path, user_id=user_id)
     _staging_dir(knowledge_root, user_id, import_id).mkdir(parents=True, exist_ok=False)
     return batch
 
 
-def get_import(import_id: str, *, database_path: Path, user_id: int | None) -> ImportBatch | None:
+def get_import(import_id: str, *, database_path: Path, user_id: Optional[int]) -> Optional[ImportBatch]:
     return get_batch(import_id, database_path=database_path, user_id=user_id)
 
 
-def upload_import_file(import_id: str, *, relative_path: str, stream: BinaryIO, database_path: Path, knowledge_root: Path, user_id: int | None) -> ImportBatch:
+def upload_import_file(import_id: str, *, relative_path: str, stream: BinaryIO, database_path: Path, knowledge_root: Path, user_id: Optional[int]) -> ImportBatch:
     normalized = _normalize_relative_path(relative_path)
     batch = get_batch(import_id, database_path=database_path, user_id=user_id)
     if batch is None:
@@ -108,7 +107,7 @@ def upload_import_file(import_id: str, *, relative_path: str, stream: BinaryIO, 
     return get_batch(import_id, database_path=database_path, user_id=user_id)  # type: ignore[return-value]
 
 
-def complete_import(import_id: str, *, database_path: Path, knowledge_root: Path, user_id: int | None) -> ImportBatch:
+def complete_import(import_id: str, *, database_path: Path, knowledge_root: Path, user_id: Optional[int]) -> ImportBatch:
     batch = get_batch(import_id, database_path=database_path, user_id=user_id)
     if batch is None:
         raise ImportNotFound("import_not_found")
@@ -129,7 +128,7 @@ def complete_import(import_id: str, *, database_path: Path, knowledge_root: Path
     return get_batch(import_id, database_path=database_path, user_id=user_id)  # type: ignore[return-value]
 
 
-def delete_import(import_id: str, *, database_path: Path, knowledge_root: Path, user_id: int | None) -> None:
+def delete_import(import_id: str, *, database_path: Path, knowledge_root: Path, user_id: Optional[int]) -> None:
     batch = get_batch(import_id, database_path=database_path, user_id=user_id)
     if batch is None:
         raise ImportNotFound("import_not_found")

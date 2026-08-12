@@ -1,6 +1,6 @@
 import time
 from pathlib import Path
-from typing import Sequence
+from typing import Sequence, Optional
 from uuid import uuid4
 
 from .approval import RunNotFound, RunStateConflict
@@ -51,7 +51,7 @@ def evaluate_run(
     run_id: str,
     *,
     database_path: Path,
-    user_id: int | None,
+    user_id: Optional[int],
     cases: Sequence[RetrievalEvaluationCase],
     staging_store: StagingStore,
 ) -> EvaluationReport:

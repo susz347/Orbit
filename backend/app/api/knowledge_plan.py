@@ -1,9 +1,8 @@
 """Authenticated, non-ingesting Knowledge Agent planning endpoint."""
 
-from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -128,7 +127,7 @@ def api_get_run_plan(
 @router.get("/runs")
 def api_list_runs(
     limit: int = Query(default=20, ge=1, le=100),
-    cursor: str | None = None,
+    cursor: Optional[str] = None,
     current_user: dict = Depends(get_current_user),
 ):
     """Return one stable, tenant-scoped page for workbench recovery."""

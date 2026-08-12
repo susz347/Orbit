@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, Optional, Union
 
 from app.knowledge_agent.chunk_ids import make_chunk_id
 from app.knowledge_agent.models import CorpusProfile, KnowledgeChunk
@@ -33,10 +33,10 @@ class UnavailableOcrAdapter:
 class ChunkDraft:
     text: str
     locator: str
-    page: int | None = None
-    sheet: str | None = None
+    page: Optional[int] = None
+    sheet: Optional[str] = None
     heading_path: tuple[str, ...] = ()
-    metadata: dict[str, str | int | float | bool] = field(default_factory=dict)
+    metadata: dict[str, Union[str, int, float, bool]] = field(default_factory=dict)
 
 
 def build_chunks(

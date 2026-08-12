@@ -1,6 +1,6 @@
-from __future__ import annotations
 
 import sqlite3
+from typing import Optional
 from pathlib import Path
 
 from .import_models import ImportBatch, ImportFileRecord
@@ -32,7 +32,7 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
     )
 
 
-def create_batch(import_id: str, *, database_path: Path, user_id: int | None) -> ImportBatch:
+def create_batch(import_id: str, *, database_path: Path, user_id: Optional[int]) -> ImportBatch:
     with _connect(database_path) as connection:
         _ensure_schema(connection)
         connection.execute(
@@ -42,7 +42,7 @@ def create_batch(import_id: str, *, database_path: Path, user_id: int | None) ->
     return get_batch(import_id, database_path=database_path, user_id=user_id)  # type: ignore[return-value]
 
 
-def get_batch(import_id: str, *, database_path: Path, user_id: int | None) -> ImportBatch | None:
+def get_batch(import_id: str, *, database_path: Path, user_id: Optional[int]) -> Optional[ImportBatch]:
     with _connect(database_path) as connection:
         _ensure_schema(connection)
         row = connection.execute(
@@ -66,7 +66,7 @@ def get_batch(import_id: str, *, database_path: Path, user_id: int | None) -> Im
     )
 
 
-def add_file(import_id: str, record: ImportFileRecord, *, database_path: Path, user_id: int | None) -> bool:
+def add_file(import_id: str, record: ImportFileRecord, *, database_path: Path, user_id: Optional[int]) -> bool:
     with _connect(database_path) as connection:
         _ensure_schema(connection)
         row = connection.execute(
@@ -89,7 +89,7 @@ def add_file(import_id: str, record: ImportFileRecord, *, database_path: Path, u
     return True
 
 
-def mark_ready(import_id: str, *, database_path: Path, user_id: int | None, manifest_hash: str, relative_path: str) -> bool:
+def mark_ready(import_id: str, *, database_path: Path, user_id: Optional[int], manifest_hash: str, relative_path: str) -> bool:
     with _connect(database_path) as connection:
         _ensure_schema(connection)
         cursor = connection.execute(
@@ -101,7 +101,7 @@ def mark_ready(import_id: str, *, database_path: Path, user_id: int | None, mani
     return cursor.rowcount == 1
 
 
-def delete_batch(import_id: str, *, database_path: Path, user_id: int | None) -> bool:
+def delete_batch(import_id: str, *, database_path: Path, user_id: Optional[int]) -> bool:
     with _connect(database_path) as connection:
         _ensure_schema(connection)
         cursor = connection.execute(

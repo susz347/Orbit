@@ -1,8 +1,8 @@
 """Execution orchestration from an approved plan into an isolated staging index."""
 
-from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Optional
 from pathlib import Path
 
 from .approval import (
@@ -26,7 +26,7 @@ _KNOWN_BLOCKED_ERRORS = {"ocr_unavailable", "ocr_empty"}
 
 
 def _load_result(
-    run_id: str, *, database_path: Path, user_id: int | None
+    run_id: str, *, database_path: Path, user_id: Optional[int]
 ) -> KnowledgeRunRecord:
     result = get_run(run_id, database_path=database_path, user_id=user_id)
     if result is None:
@@ -41,7 +41,7 @@ def _mark_failed(
     collection: str,
     staging_store: StagingStore,
     database_path: Path,
-    user_id: int | None,
+    user_id: Optional[int],
 ) -> KnowledgeRunRecord:
     try:
         staging_store.delete(run_id=run_id, user_id=user_id)
@@ -76,7 +76,7 @@ def execute_run(
     *,
     knowledge_root: Path,
     database_path: Path,
-    user_id: int | None,
+    user_id: Optional[int],
     executors: Mapping[str, StrategyExecutor],
     staging_store: StagingStore,
 ) -> KnowledgeRunRecord:

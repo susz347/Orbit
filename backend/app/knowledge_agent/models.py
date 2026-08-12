@@ -1,4 +1,4 @@
-from typing import Any, Literal
+from typing import Any, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -60,8 +60,8 @@ class AgentAttempt(BaseModel):
     status: AgentStatus
     model: str
     duration_ms: int = Field(ge=0)
-    suggestion: dict[str, Any] | None = None
-    error_category: str | None = None
+    suggestion: Optional[dict[str, Union[Any]]] = None
+    error_category: Optional[str] = None
 
 
 class PlannedDocument(BaseModel):
@@ -69,7 +69,7 @@ class PlannedDocument(BaseModel):
 
     profile: CorpusProfile
     decision: StrategyDecision
-    agent_attempt: AgentAttempt | None = None
+    agent_attempt: Optional[AgentAttempt] = None
 
 
 class FolderPlan(BaseModel):
@@ -96,10 +96,10 @@ class KnowledgeChunk(BaseModel):
     source_hash: str = Field(min_length=64, max_length=64)
     strategy_id: str = Field(min_length=1)
     chunk_index: int = Field(ge=0)
-    page: int | None = Field(default=None, ge=1)
-    sheet: str | None = None
+    page: Optional[int] = Field(default=None, ge=1)
+    sheet: Optional[str] = None
     heading_path: tuple[str, ...] = ()
-    metadata: dict[str, str | int | float | bool] = Field(default_factory=dict)
+    metadata: dict[str, Union[str, int, float, bool]] = Field(default_factory=dict)
 
 
 class KnowledgeRunRecord(BaseModel):
@@ -108,20 +108,20 @@ class KnowledgeRunRecord(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     run_id: str
-    user_id: int | None = None
+    user_id: Optional[int] = None
     folder_path: str
     status: RunStatus
     dry_run: bool
     vector_store_writes: int = Field(ge=0)
     document_count: int = Field(ge=0)
     created_at: str
-    updated_at: str | None = None
-    approved_at: str | None = None
-    staging_collection: str | None = None
+    updated_at: Optional[str] = None
+    approved_at: Optional[str] = None
+    staging_collection: Optional[str] = None
     chunk_count: int = Field(default=0, ge=0)
-    execution_error: str | None = None
-    indexing_started_at: str | None = None
-    indexing_completed_at: str | None = None
+    execution_error: Optional[str] = None
+    indexing_started_at: Optional[str] = None
+    indexing_completed_at: Optional[str] = None
 
 
 class KnowledgeRunPage(BaseModel):
@@ -130,4 +130,4 @@ class KnowledgeRunPage(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     items: tuple[KnowledgeRunRecord, ...]
-    next_cursor: str | None = None
+    next_cursor: Optional[str] = None

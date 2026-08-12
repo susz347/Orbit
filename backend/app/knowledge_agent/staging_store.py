@@ -2,7 +2,7 @@ import hashlib
 import json
 import re
 from collections.abc import Callable, Sequence
-from typing import Any
+from typing import Any, Optional, Union
 
 from app.knowledge_agent.models import KnowledgeChunk
 from app.knowledge_agent.evaluation_models import RetrievedChunk
@@ -16,7 +16,7 @@ class StorageFailed(RuntimeError):
     """Sanitized boundary for Chroma failures."""
 
 
-def staging_collection_name(run_id: str, user_id: int | None) -> str:
+def staging_collection_name(run_id: str, user_id: Optional[int]) -> str:
     tenant = hashlib.sha256(str(user_id).encode("utf-8")).hexdigest()[:8]
     sanitized_run = re.sub(r"[^a-zA-Z0-9]", "", run_id)[:32]
     if not sanitized_run:
@@ -24,8 +24,8 @@ def staging_collection_name(run_id: str, user_id: int | None) -> str:
     return f"kr_{tenant}_{sanitized_run}"
 
 
-def _chunk_metadata(chunk: KnowledgeChunk) -> dict[str, str | int | float | bool]:
-    metadata: dict[str, str | int | float | bool | None] = {
+def _chunk_metadata(chunk: KnowledgeChunk) -> dict[str, Union[str, int, float, bool]]:
+    metadata: dict[str, str | int | float | Optional[bool]] = {
         **chunk.metadata,
         "run_id": chunk.run_id,
         "source_path": chunk.source_path,
@@ -45,8 +45,8 @@ class StagingStore:
     def __init__(
         self,
         *,
-        client: Any | None = None,
-        encoder: Callable[[list[str]], Sequence[Sequence[float]]] | None = None,
+        client: Optional[Any] = None,
+        encoder: Optional[Callable[[list[str]], Sequence[Sequence[float]]]] = None,
     ):
         if encoder is None:
             from app.embed import encode
@@ -62,7 +62,7 @@ class StagingStore:
             self.client = get_client()
         return self.client
 
-    def upsert(self, chunks: Sequence[KnowledgeChunk], *, user_id: int | None) -> int:
+    def upsert(self, chunks: Sequence[KnowledgeChunk], *, user_id: Optional[int]) -> int:
         if not chunks:
             return 0
         run_ids = {chunk.run_id for chunk in chunks}
@@ -94,17 +94,17 @@ class StagingStore:
             raise StorageFailed("storage_error") from exc
         return len(chunks)
 
-    def count(self, *, run_id: str, user_id: int | None) -> int:
+    def count(self, *, run_id: str, user_id: Optional[int]) -> int:
         collection = self._get_client().get_or_create_collection(
             name=staging_collection_name(run_id, user_id),
             metadata={"hnsw:space": "cosine"},
         )
         return collection.count()
 
-    def delete(self, *, run_id: str, user_id: int | None) -> None:
+    def delete(self, *, run_id: str, user_id: Optional[int]) -> None:
         self._get_client().delete_collection(staging_collection_name(run_id, user_id))
 
-    def exists(self, *, run_id: str, user_id: int | None) -> bool:
+    def exists(self, *, run_id: str, user_id: Optional[int]) -> bool:
         return self.collection_exists(staging_collection_name(run_id, user_id))
 
     def collection_exists(self, collection_name: str) -> bool:
@@ -123,7 +123,7 @@ class StagingStore:
         self,
         *,
         run_id: str,
-        user_id: int | None,
+        user_id: Optional[int],
         question: str,
         top_k: int,
     ) -> tuple[RetrievedChunk, ...]:

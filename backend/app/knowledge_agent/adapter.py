@@ -1,12 +1,11 @@
 """OpenAI-compatible Knowledge Agent adapter with per-file failure isolation."""
 
-from __future__ import annotations
 
 import json
 import os
 from collections.abc import Callable
 from time import perf_counter
-from typing import Any
+from typing import Any, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -31,7 +30,7 @@ class OpenAICompatibleKnowledgeAgent:
         base_url: str = DEFAULT_BASE_URL,
         model: str = "gpt-4o-mini",
         timeout_seconds: float = 20,
-        opener: Callable[..., Any] | None = None,
+        opener: Optional[Callable[..., Any]] = None,
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url
@@ -53,8 +52,8 @@ class OpenAICompatibleKnowledgeAgent:
         started_at: float,
         *,
         status: str,
-        suggestion: dict[str, Any] | None = None,
-        error_category: str | None = None,
+        suggestion: Optional[dict[str, Any]] = None,
+        error_category: Optional[str] = None,
     ) -> AgentAttempt:
         return AgentAttempt(
             status=status,

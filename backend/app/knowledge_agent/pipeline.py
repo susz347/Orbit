@@ -1,10 +1,9 @@
 """The non-ingesting Knowledge Agent folder planning pipeline."""
 
-from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, Optional
 from uuid import uuid4
 
 from .evidence import read_evidence
@@ -31,9 +30,9 @@ def plan_folder(
     *,
     knowledge_root: Path,
     database_path: Path,
-    user_id: int | None = None,
-    agent_suggestions: Mapping[str, Mapping[str, Any]] | None = None,
-    agent: KnowledgeAgent | None = None,
+    user_id: Optional[int] = None,
+    agent_suggestions: Optional[Mapping[str, Mapping[str, Any]]] = None,
+    agent: Optional[KnowledgeAgent] = None,
 ) -> FolderPlan:
     """Profile and select strategies without creating chunks or vectors."""
 

@@ -1,8 +1,8 @@
 """Human approval orchestration for immutable KnowledgeRun plans."""
 
-from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional
 
 from .models import KnowledgeRunRecord
 from .profiler import scan_folder
@@ -23,7 +23,7 @@ def source_manifest_matches(
     *,
     knowledge_root: Path,
     database_path: Path,
-    user_id: int | None,
+    user_id: Optional[int],
 ) -> bool:
     """Compare current files with the immutable tenant-owned run manifest."""
 
@@ -50,7 +50,7 @@ def approve_run(
     *,
     knowledge_root: Path,
     database_path: Path,
-    user_id: int | None,
+    user_id: Optional[int],
 ) -> KnowledgeRunRecord:
     """Approve an unchanged plan, or invalidate it when its source manifest drifted."""
 

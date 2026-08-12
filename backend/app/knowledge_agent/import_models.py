@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -19,13 +19,13 @@ class ImportBatch(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     import_id: str
-    user_id: int | None
+    user_id: Optional[int]
     status: ImportStatus
     file_count: int = Field(ge=0)
     total_size: int = Field(ge=0)
-    manifest_hash: str | None = None
-    relative_path: str | None = None
-    error_category: str | None = None
+    manifest_hash: Optional[str] = None
+    relative_path: Optional[str] = None
+    error_category: Optional[str] = None
     created_at: str
-    completed_at: str | None = None
+    completed_at: Optional[str] = None
     files: tuple[ImportFileRecord, ...] = ()

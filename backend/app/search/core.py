@@ -6,9 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..config import settings
-from ..embed import encode
-from ..knowledge_agent.releases import ActiveIndexVersion, get_active_index
-from ..store import get_collection, get_collection_by_name
+from .. import search as _search_module  # 延迟引用，允许测试 monkeypatch search.encode / get_active_index 等
 
 # count 缓存（避免每次搜索都调用 O(n) 的 collection.count()）
 _count_cache: dict = {}  # {collection_name: {"value": int, "ts": float}}
@@ -25,16 +23,16 @@ def _knowledge_database_path() -> Path:
 
 def resolve_active_collection(
     user_id: Optional[int],
-) -> tuple[object, ActiveIndexVersion]:
+):
     """解析当前用户 active index 版本对应的 Collection。"""
     version = resolve_active_version(user_id)
-    return get_collection_by_name(version.collection_name), version
+    return _search_module.get_collection_by_name(version.collection_name), version
 
 
-def resolve_active_version(user_id: Optional[int]) -> ActiveIndexVersion:
+def resolve_active_version(user_id: Optional[int]):
     """解析当前用户 active index 版本（未配置时回退到默认 Collection）。"""
-    return get_active_index(
-        user_id=user_id, database_path=_knowledge_database_path()
+    return _search_module.get_active_index(
+        user_id=user_id, database_path=_search_module._knowledge_database_path()
     )
 
 
@@ -80,8 +78,8 @@ def search(query: str, top_k: int = None, user_id: Optional[int] = None) -> list
     if _get_cached_count(collection, collection_name) == 0:
         return []
 
-    # 查询向量化
-    query_embedding = encode([query])[0]
+    # 查询向量化（延迟引用，允许测试 monkeypatch）
+    query_embedding = _search_module.encode([query])[0]
 
     # 语义检索
     results = collection.query(

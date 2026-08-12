@@ -475,7 +475,7 @@ def _is_frontend_task(build: "BuildOutput") -> bool:
 
 
 def _run_ux_review(build: "BuildOutput", task_desc: str, api_key: str, model: str,
-                   budget: Optional[LoopBudget] = None) -> tuple["UxReviewResult | None", dict]:
+                   budget: Optional[LoopBudget] = None) -> tuple["Optional[UxReviewResult]", dict]:
     """User Agent UX 审查（P4-4）。
 
     - 非前端任务 → 返回 UX_SKIPPED（不阻塞 loop）

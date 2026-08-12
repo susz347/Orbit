@@ -34,7 +34,7 @@ class BaseRouter(ABC):
         """分类 query。
 
         返回 (tier, confidence, intent)：
-        - tier: fast | balanced | strong | unknown | out_of_scope | None（未命中）
+        - tier: fast | balanced | strong | unknown | Optional[out_of_scope]（未命中）
         - confidence: 0.0 ~ 1.0
         - intent: 意图名（未命中时为空字符串）
         """

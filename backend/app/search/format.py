@@ -15,7 +15,7 @@ def search_formatted(query: str, top_k: int = None, user_id: Optional[int] = Non
 
     lines = ["## 知识库检索结果\n"]
     for i, item in enumerate(items, 1):
-        source = item["metadata"].get("source", "未知")
+        source = item["metadata"].get("source_path") or item["metadata"].get("source", "未知")
         lines.append(f"### 结果 {i}（相关度: {item['score']:.0%} | 来源: {source}）")
         lines.append(item["text"])
         lines.append("")

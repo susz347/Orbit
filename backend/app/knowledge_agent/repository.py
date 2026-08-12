@@ -1,8 +1,8 @@
 """SQLite audit persistence for Knowledge Agent runs."""
 
-from __future__ import annotations
 
 import base64
+from typing import Optional
 import binascii
 import json
 import sqlite3
@@ -93,7 +93,7 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
         )
 
 
-def save_plan(plan: FolderPlan, *, database_path: Path, user_id: int | None) -> None:
+def save_plan(plan: FolderPlan, *, database_path: Path, user_id: Optional[int]) -> None:
     """Persist audit data only. This module has no vector-store dependency."""
 
     with _connect(database_path) as connection:
@@ -139,8 +139,8 @@ def save_plan(plan: FolderPlan, *, database_path: Path, user_id: int | None) -> 
 
 
 def get_run(
-    run_id: str, *, database_path: Path, user_id: int | None
-) -> KnowledgeRunRecord | None:
+    run_id: str, *, database_path: Path, user_id: Optional[int]
+) -> Optional[KnowledgeRunRecord]:
     """Load one run without exposing records owned by another tenant."""
 
     with _connect(database_path) as connection:
@@ -200,9 +200,9 @@ def _decode_run_cursor(cursor: str) -> tuple[str, str]:
 def list_runs(
     *,
     database_path: Path,
-    user_id: int | None,
+    user_id: Optional[int],
     limit: int = 20,
-    cursor: str | None = None,
+    cursor: Optional[str] = None,
 ) -> KnowledgeRunPage:
     """List one tenant's newest runs with stable keyset pagination."""
 
@@ -252,7 +252,7 @@ def list_runs(
 
 
 def load_planned_documents(
-    run_id: str, *, database_path: Path, user_id: int | None
+    run_id: str, *, database_path: Path, user_id: Optional[int]
 ) -> tuple[PlannedDocument, ...]:
     """Restore the immutable execution inputs without storing document text."""
 
@@ -289,10 +289,10 @@ def save_execution_result(
     staging_collection: str,
     chunk_count: int,
     vector_store_writes: int,
-    execution_error: str | None,
+    execution_error: Optional[str],
     completed: bool,
     database_path: Path,
-    user_id: int | None,
+    user_id: Optional[int],
 ) -> bool:
     """Persist execution audit counters and sanitized outcome only."""
 
@@ -328,7 +328,7 @@ def save_execution_result(
 
 
 def load_source_hashes(
-    run_id: str, *, database_path: Path, user_id: int | None
+    run_id: str, *, database_path: Path, user_id: Optional[int]
 ) -> dict[str, str]:
     """Load the immutable source manifest for one tenant-owned run."""
 
@@ -353,7 +353,7 @@ def transition_run(
     target: RunStatus,
     expected: RunStatus,
     database_path: Path,
-    user_id: int | None,
+    user_id: Optional[int],
 ) -> bool:
     """Atomically apply a valid transition when the persisted state is expected."""
 

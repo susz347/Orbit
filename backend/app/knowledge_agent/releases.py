@@ -1,6 +1,7 @@
 """Atomic active-index promotion and rollback for Knowledge Agent runs."""
 
 from collections.abc import Callable
+from typing import Optional
 from pathlib import Path
 from uuid import uuid4
 
@@ -19,19 +20,19 @@ class ReleaseConflict(RuntimeError):
 class ActiveIndexVersion(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    run_id: str | None
+    run_id: Optional[str]
     collection_name: str
     generation: int = Field(ge=0)
     legacy: bool
-    previous_run_id: str | None = None
-    previous_collection_name: str | None = None
+    previous_run_id: Optional[str] = None
+    previous_collection_name: Optional[str] = None
 
 
-def _tenant_key(user_id: int | None) -> str:
+def _tenant_key(user_id: Optional[int]) -> str:
     return "global" if user_id is None else str(user_id)
 
 
-def _legacy_collection(user_id: int | None) -> str:
+def _legacy_collection(user_id: Optional[int]) -> str:
     return f"user_{user_id}" if user_id is not None else settings.CHROMA_COLLECTION
 
 
@@ -66,7 +67,7 @@ def _ensure_release_schema(connection) -> None:
     )
 
 
-def _read_active(connection, user_id: int | None) -> ActiveIndexVersion:
+def _read_active(connection, user_id: Optional[int]) -> ActiveIndexVersion:
     row = connection.execute(
         """
         SELECT active.run_id, active.collection_name, active.generation,
@@ -93,7 +94,7 @@ def _read_active(connection, user_id: int | None) -> ActiveIndexVersion:
 
 
 def get_active_index(
-    *, user_id: int | None, database_path: Path
+    *, user_id: Optional[int], database_path: Path
 ) -> ActiveIndexVersion:
     with _connect(database_path) as connection:
         _ensure_release_schema(connection)
@@ -104,7 +105,7 @@ def promote_run(
     run_id: str,
     *,
     database_path: Path,
-    user_id: int | None,
+    user_id: Optional[int],
     collection_exists: Callable[[str], bool],
 ) -> ActiveIndexVersion:
     collection_name = staging_collection_name(run_id, user_id)
@@ -174,7 +175,7 @@ def rollback_run(
     run_id: str,
     *,
     database_path: Path,
-    user_id: int | None,
+    user_id: Optional[int],
     collection_exists: Callable[[str], bool],
 ) -> ActiveIndexVersion:
     with _connect(database_path) as connection:

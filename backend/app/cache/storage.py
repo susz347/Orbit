@@ -8,9 +8,14 @@
 
 import time
 from typing import Optional
-from ..embed import encode
+from .. import cache as _cache_module  # 延迟引用 encode，允许测试 monkeypatch cache.encode
 from ._index import CacheIndex
 from .similarity import find_similar
+
+
+def encode(texts):
+    """编码入口：委托给父包 cache.encode（可被测试替换）。"""
+    return _cache_module.encode(texts)
 
 # 缓存条目: {cache_key: {"answer": str, "sources": list, "timestamp": float, "query": str, "embedding": list}}
 _cache: dict = {}
@@ -47,12 +52,16 @@ def _adaptive_threshold(query: str) -> float:
         return 0.97
 
 
-def _find_similar(query_embedding: list[float], threshold: float = CACHE_THRESHOLD) -> Optional[dict]:
+def _find_similar(
+    query_embedding: list[float], threshold: float = CACHE_THRESHOLD,
+    namespace: Optional[str] = None,
+) -> Optional[dict]:
     """在缓存中查找相似查询（阈值由调用方传入，兼容既有调用面）。
 
     C3: 优先用 Faiss 索引加速；索引不可用/维度不符时回退暴力搜索。
+    namespace: 多租户缓存隔离——只匹配相同 namespace 的条目。
     """
-    # C3: Faiss 索引加速路径
+    # C3: Faiss 索引加速路径（候选仍需 namespace 过滤）
     if _index.enabled:
         candidates = _index.search(query_embedding, top_k=10)
         if candidates:
@@ -63,6 +72,8 @@ def _find_similar(query_embedding: list[float], threshold: float = CACHE_THRESHO
                 entry = _cache.get(key)
                 if entry is None or now - entry["timestamp"] > CACHE_TTL_SECONDS:
                     continue
+                if entry.get("namespace") != namespace:
+                    continue
                 if score > best_score:
                     best_score = score
                     best_entry = entry
@@ -72,10 +83,10 @@ def _find_similar(query_embedding: list[float], threshold: float = CACHE_THRESHO
             return None
 
     # 回退：暴力搜索（同时清理过期条目）
-    return find_similar(query_embedding, _cache, CACHE_TTL_SECONDS, threshold)
+    return find_similar(query_embedding, _cache, CACHE_TTL_SECONDS, threshold, namespace)
 
 
-def get(query: str, temperature: float = 0.0) -> Optional[dict]:
+def get(query: str, temperature: float = 0.0, namespace: Optional[str] = None) -> Optional[dict]:
     """
     查询缓存。
     如果命中，返回 {"answer": ..., "sources": ..., "cache_hit": True, "cache_hit_score": ...}
@@ -83,6 +94,7 @@ def get(query: str, temperature: float = 0.0) -> Optional[dict]:
 
     C1: 阈值按 query 长度自适应（_adaptive_threshold）。
     C2: temperature 联动缓存——高创造性请求按概率跳过缓存，避免返回过期结果。
+    namespace: 多租户缓存隔离——只查询相同 namespace 的条目。
     """
     # C2: temperature 联动——高 temperature 降低缓存使用（参考 GPTCache）
     if temperature > 0.7:
@@ -100,7 +112,7 @@ def get(query: str, temperature: float = 0.0) -> Optional[dict]:
     query_embedding = embeddings[0]
     # C1: 自适应阈值
     threshold = _adaptive_threshold(query)
-    hit = _find_similar(query_embedding, threshold)
+    hit = _find_similar(query_embedding, threshold, namespace)
 
     if hit:
         _increment_hit()
@@ -136,8 +148,11 @@ def _record_result(hit: bool):
         _history = _history[-HISTORY_MAX:]
 
 
-def put(query: str, answer: str, sources: list, model: str):
-    """存入缓存"""
+def put(query: str, answer: str, sources: list, model: str, namespace: Optional[str] = None):
+    """存入缓存。
+
+    namespace: 多租户缓存隔离——同 key 不同 namespace 互不干扰。
+    """
     # LRU: 超过最大大小时删除最早的
     if len(_cache) >= MAX_CACHE_SIZE:
         oldest_key = min(_cache, key=lambda k: _cache[k]["timestamp"])
@@ -148,12 +163,13 @@ def put(query: str, answer: str, sources: list, model: str):
     if not embeddings:
         return
 
-    cache_key = f"q_{hash(query)}"
+    cache_key = f"q_{hash((namespace, query))}"
     _cache[cache_key] = {
         "query": query,
         "answer": answer,
         "sources": sources,
         "model": model,
+        "namespace": namespace,
         "embedding": embeddings[0],
         "timestamp": time.time(),
     }

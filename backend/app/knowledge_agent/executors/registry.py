@@ -1,3 +1,5 @@
+from typing import Optional
+
 from app.knowledge_agent.executors.base import (
     OcrAdapter,
     StrategyExecutor,
@@ -13,7 +15,7 @@ from app.knowledge_agent.executors.xlsx import SpreadsheetStructuredExecutor
 
 
 def build_executor_registry(
-    *, ocr: OcrAdapter | None = None
+    *, ocr: Optional[OcrAdapter] = None
 ) -> dict[str, StrategyExecutor]:
     ocr_adapter = ocr or UnavailableOcrAdapter()
     return {

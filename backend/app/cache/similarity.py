@@ -16,10 +16,14 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
-def find_similar(query_embedding: list[float], cache: dict, ttl_seconds: int, threshold: float) -> Optional[dict]:
+def find_similar(
+    query_embedding: list[float], cache: dict, ttl_seconds: int, threshold: float,
+    namespace: Optional[str] = None,
+) -> Optional[dict]:
     """在缓存字典中查找相似查询，返回命中的缓存条目（附 cache_hit_score）。
 
     同时清理过期条目（TTL）。
+    namespace: 多租户缓存隔离——只匹配相同 namespace 的条目；None 匹配无 namespace 条目。
     """
     now = time.time()
 
@@ -34,6 +38,8 @@ def find_similar(query_embedding: list[float], cache: dict, ttl_seconds: int, th
 
     for entry in cache.values():
         if now - entry["timestamp"] > ttl_seconds:
+            continue
+        if entry.get("namespace") != namespace:
             continue
         score = cosine_similarity(query_embedding, entry["embedding"])
         if score > best_score:
