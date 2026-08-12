@@ -1,4 +1,4 @@
-"""api/logos.py — Logos 对话总结接口测试 /api/knowledge/logos"""
+"""api/logos.py — Logos 对话总结接口测试 /api/v1/knowledge/logos"""
 import os
 from datetime import datetime
 
@@ -11,7 +11,7 @@ def _memory_dir():
 
 
 def test_logos_writes_memory_file(client):
-    r = client.post("/api/knowledge/logos", json={"conversation": "用户：搭建知识库\n助手：已完成 RAG 流程"})
+    r = client.post("/api/v1/knowledge/logos", json={"conversation": "用户：搭建知识库\n助手：已完成 RAG 流程"})
     assert r.status_code == 200
     data = r.json()
     assert data["status"] == "ok"
@@ -28,8 +28,8 @@ def test_logos_writes_memory_file(client):
 
 def test_logos_appends_second_conversation(client):
     conv = "用户：第二次对话\n助手：好的"
-    client.post("/api/knowledge/logos", json={"conversation": conv})
-    r = client.post("/api/knowledge/logos", json={"conversation": conv})
+    client.post("/api/v1/knowledge/logos", json={"conversation": conv})
+    r = client.post("/api/v1/knowledge/logos", json={"conversation": conv})
     assert r.status_code == 200
     today = datetime.now().strftime("%Y-%m-%d")
     content = open(os.path.join(_memory_dir(), f"{today}.md"), encoding="utf-8").read()
@@ -37,7 +37,7 @@ def test_logos_appends_second_conversation(client):
 
 
 def test_logos_empty_conversation(client):
-    r = client.post("/api/knowledge/logos", json={"conversation": "  "})
+    r = client.post("/api/v1/knowledge/logos", json={"conversation": "  "})
     assert r.status_code == 400
     assert "不能为空" in r.json()["detail"]
 
@@ -45,7 +45,7 @@ def test_logos_empty_conversation(client):
 def test_logos_with_llm_mock(client, mock_llm, monkeypatch):
     """有 LLM_API_KEY 时用 LLM 生成总结"""
     monkeypatch.setenv("LLM_API_KEY", "sk-test")
-    r = client.post("/api/knowledge/logos", json={"conversation": "用户：总结这个\n助手：好"})
+    r = client.post("/api/v1/knowledge/logos", json={"conversation": "用户：总结这个\n助手：好"})
     assert r.status_code == 200
     assert mock_llm["requests"], "LLM 应被调用"
     today = datetime.now().strftime("%Y-%m-%d")

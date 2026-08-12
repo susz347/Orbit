@@ -6,6 +6,7 @@ RAG 策略配置文件。
 """
 
 import os
+import sys
 from typing import Optional, Literal
 
 
@@ -202,3 +203,49 @@ settings = Settings()
 
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 os.makedirs(settings.rag.storage.persist_dir, exist_ok=True)
+
+
+# ── P1-3: 环境配置启动时验证 ──
+
+def _validate_config_on_startup():
+    """启动时校验关键配置，缺失或无效则拒绝启动。
+
+    在 lifespan 中调用，确保问题尽早暴露而非静默降级。
+    """
+    errors = []
+
+    # LLM API Key
+    llm_api_key = os.getenv("LLM_API_KEY", "").strip()
+    if not llm_api_key:
+        errors.append("LLM_API_KEY 未设置。请在 .env 文件中配置 LLM_API_KEY。")
+
+    # JWT Secret Key
+    jwt_secret = os.getenv("SECRET_KEY", "").strip()
+    if len(jwt_secret) < 16:
+        errors.append(
+            "SECRET_KEY 未设置或长度不足（需 >= 16 字符）。"
+            "缺少 SECRET_KEY 会导致每次重启后所有用户 Token 失效。"
+        )
+
+    # CORS Origins（生产环境不应使用通配符 *）
+    cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000")
+    if "*" in cors_origins:
+        errors.append("CORS_ORIGINS 不应包含通配符 *（安全风险）。请指定具体域名。")
+
+    # ChromaDB 持久化目录
+    persist_dir = settings.rag.storage.persist_dir
+    if not os.path.isdir(persist_dir):
+        try:
+            os.makedirs(persist_dir, exist_ok=True)
+        except OSError as e:
+            errors.append(f"无法创建 ChromaDB 持久化目录 {persist_dir}: {e}")
+
+    if errors:
+        print("\n" + "=" * 60, file=sys.stderr)
+        print(" 配置错误 — 服务拒绝启动", file=sys.stderr)
+        print("=" * 60, file=sys.stderr)
+        for i, err in enumerate(errors, 1):
+            print(f" [{i}] {err}", file=sys.stderr)
+        print("=" * 60 + "\n", file=sys.stderr)
+        sys.exit(1)
+

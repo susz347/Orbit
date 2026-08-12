@@ -12,3 +12,11 @@ python-jose[cryptography]==3.3.0
 bcrypt==4.1.3
 slowapi==0.1.9
 httpx==0.27.2
+# P0 工程化新增依赖
+structlog==24.4.0
+tenacity==9.0.0
+pybreaker==1.0.0
+alembic==1.16.0
+# P2 可观测性（可选）
+# prometheus-fastapi-instrumentator==7.0.0  # 取消注释以启用 /metrics 端点
+# sentry-sdk==2.29.0  # 取消注释以启用错误追踪

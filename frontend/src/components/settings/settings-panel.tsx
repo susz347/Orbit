@@ -4,9 +4,22 @@ import { useState, useEffect, useCallback } from "react";
 import { system, agents } from "@/lib/api";
 import {
   Cpu, Database, CheckCircle2, XCircle, Loader2,
-  Plus, ChevronDown, ChevronUp, Trash2, Sparkles, Clock,
+  Plus, ChevronDown, ChevronUp, Trash2, Sparkles, Clock, Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+// C4: 缓存命中率面板数据结构
+interface CacheStats {
+  total_entries: number;
+  active_entries: number;
+  max_size: number;
+  hit_count: number;
+  miss_count: number;
+  hit_rate: number;
+  index_enabled: boolean;
+  index_ntotal: number;
+  history: Array<{ ts: number; hit: boolean }>;
+}
 
 interface ModelConfig {
   name: string;
@@ -54,6 +67,11 @@ export function SettingsPanel() {
   const [health, setHealth] = useState<Record<string, string> | null>(null);
   const [healthLoading, setHealthLoading] = useState(false);
 
+  // C4: 缓存命中率
+  const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
+  const [cacheLoading, setCacheLoading] = useState(false);
+  const [clearing, setClearing] = useState(false);
+
   const [models, setModels] = useState<ModelConfig[]>(loadModels);
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [roleModels, setRoleModels] = useState<Record<string, string>>(loadRoleModels);
@@ -91,8 +109,31 @@ export function SettingsPanel() {
     }
   };
 
+  // C4: 缓存命中率
+  const refreshCacheStats = async () => {
+    setCacheLoading(true);
+    try {
+      setCacheStats(await system.cacheStats());
+    } catch {
+      setCacheStats(null);
+    } finally {
+      setCacheLoading(false);
+    }
+  };
+
+  const clearCache = async () => {
+    setClearing(true);
+    try {
+      await system.cacheClear();
+      await refreshCacheStats();
+    } finally {
+      setClearing(false);
+    }
+  };
+
   useEffect(() => {
     checkHealth();
+    refreshCacheStats();
   }, []);
 
   const persist = useCallback((m: ModelConfig[]) => {
@@ -249,6 +290,101 @@ export function SettingsPanel() {
             >
               刷新检查
             </button>
+          </div>
+        </section>
+
+        {/* C4: 缓存命中率趋势面板 */}
+        <section>
+          <h3 className="flex items-center gap-2 text-sm font-medium mb-3">
+            <Zap className="h-4 w-4 text-muted" />
+            缓存命中率
+            <span className="text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full">
+              {cacheStats ? `命中率 ${(cacheStats.hit_rate * 100).toFixed(1)}%` : "—"}
+            </span>
+          </h3>
+          <div className="rounded-xl border border-border bg-surface/50 p-4 space-y-3">
+            {cacheLoading ? (
+              <div className="flex items-center gap-2 text-xs text-muted py-2">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> 加载中…
+              </div>
+            ) : !cacheStats ? (
+              <div className="text-xs text-error py-1">无法获取缓存统计（后端未启动？）</div>
+            ) : (
+              <>
+                {/* 累计指标 */}
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-lg bg-surface p-2">
+                    <div className="text-base font-semibold">{cacheStats.hit_count}</div>
+                    <div className="text-[10px] text-muted mt-0.5">命中</div>
+                  </div>
+                  <div className="rounded-lg bg-surface p-2">
+                    <div className="text-base font-semibold">{cacheStats.miss_count}</div>
+                    <div className="text-[10px] text-muted mt-0.5">未命中</div>
+                  </div>
+                  <div className="rounded-lg bg-surface p-2">
+                    <div className="text-base font-semibold">{cacheStats.total_entries}<span className="text-xs text-muted font-normal">/{cacheStats.max_size}</span></div>
+                    <div className="text-[10px] text-muted mt-0.5">缓存条目</div>
+                  </div>
+                </div>
+
+                {/* 命中率进度条 */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-[10px] text-muted">
+                    <span>累计命中率</span>
+                    <span>{(cacheStats.hit_rate * 100).toFixed(1)}%</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-border/60 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-primary transition-all duration-500"
+                      style={{ width: `${Math.min(cacheStats.hit_rate * 100, 100)}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* 最近查询趋势条（绿色=命中，红色=未命中） */}
+                {cacheStats.history.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-[10px] text-muted">
+                      <span>最近 {cacheStats.history.length} 次查询</span>
+                      <span>{cacheStats.index_enabled ? "Faiss 索引已启用" : "暴力搜索（索引不可用）"}</span>
+                    </div>
+                    <div className="flex gap-[3px] h-4 items-end">
+                      {cacheStats.history.map((h, i) => (
+                        <div
+                          key={i}
+                          title={h.hit ? "命中" : "未命中"}
+                          className={cn(
+                            "flex-1 rounded-sm transition-all",
+                            h.hit ? "bg-success/70" : "bg-error/60"
+                          )}
+                          style={{ height: h.hit ? "100%" : "45%" }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 操作 */}
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    onClick={refreshCacheStats}
+                    className="text-xs text-primary hover:underline cursor-pointer"
+                  >
+                    刷新
+                  </button>
+                  <button
+                    onClick={clearCache}
+                    disabled={clearing}
+                    className={cn(
+                      "text-xs cursor-pointer transition-colors",
+                      clearing ? "text-muted" : "text-error hover:underline"
+                    )}
+                  >
+                    {clearing ? "清空中…" : "清空缓存"}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </section>
 

@@ -1,8 +1,10 @@
 """RAG 生成服务：检索结果 + 用户问题 → LLM → 带引用的答案（非流式）。"""
 
 import json
+import time
 import urllib.request
 
+from ..logging_config import get_logger
 from ..llm import (
     get_llm_config,
     build_chat_request,
@@ -10,7 +12,11 @@ from ..llm import (
     build_context_text,
     build_sources,
     build_strict_rag_user_message,
+    call_llm_with_retry,
+    LLMCallFailedError,
 )
+
+logger = get_logger(__name__)
 
 
 def generate_answer(question: str, context_chunks: list[dict], history: list[dict] = None, model: str = None, api_key: str = None) -> dict:
@@ -40,6 +46,7 @@ def generate_answer(question: str, context_chunks: list[dict], history: list[dic
 
     # 如果没有 API key，返回检索结果作为 fallback
     if not api_key:
+        logger.warning("no_api_key_configured", model=model)
         return {
             "answer": f"（未配置 LLM_API_KEY，以下为检索结果摘要）\n\n根据知识库检索，最相关的内容来自：{', '.join(s['source'] for s in sources)}\n\n{context_chunks[0]['text'] if context_chunks else '无结果'}",
             "sources": sources,
@@ -47,7 +54,7 @@ def generate_answer(question: str, context_chunks: list[dict], history: list[dic
             "context_count": len(context_chunks),
         }
 
-    # 调用 LLM
+    # P0-3: 调用 LLM（带重试和熔断保护）
     req = build_chat_request(base_url, api_key, {
         "model": model,
         "messages": messages,
@@ -55,17 +62,34 @@ def generate_answer(question: str, context_chunks: list[dict], history: list[dic
         "max_tokens": 1000,
     })
 
+    start_time = time.monotonic()
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            result = json.loads(resp.read())
-            answer = result["choices"][0]["message"]["content"]
-            return {
-                "answer": answer,
-                "sources": sources,
-                "model": model,
-                "context_count": len(context_chunks),
-            }
-    except Exception as e:
+        result = call_llm_with_retry(
+            call_fn=lambda: urllib.request.urlopen(req, timeout=30),
+            model_name=model,
+        )
+        elapsed_ms = int((time.monotonic() - start_time) * 1000)
+        resp = json.loads(result["data"].read())
+        answer = resp["choices"][0]["message"]["content"]
+        usage = resp.get("usage", {})
+
+        logger.info(
+            "rag_generate_success",
+            model=result["model_used"],
+            latency_ms=elapsed_ms,
+            prompt_tokens=usage.get("prompt_tokens", 0),
+            completion_tokens=usage.get("completion_tokens", 0),
+            context_count=len(context_chunks),
+        )
+
+        return {
+            "answer": answer,
+            "sources": sources,
+            "model": result["model_used"],
+            "context_count": len(context_chunks),
+        }
+    except LLMCallFailedError as e:
+        logger.error("rag_generate_failed", error=str(e)[:200], model=model, context_count=len(context_chunks))
         return {
             "answer": f"LLM 调用失败: {str(e)}\n\n以下为检索结果：\n{context_chunks[0]['text'] if context_chunks else '无结果'}",
             "sources": sources,

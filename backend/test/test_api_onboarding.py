@@ -1,8 +1,8 @@
-"""api/onboarding.py — 新手引导接口测试 /api/onboarding/*"""
+"""api/onboarding.py — 新手引导接口测试 /api/v1/onboarding/*"""
 
 
 def test_template(client):
-    r = client.get("/api/onboarding/template")
+    r = client.get("/api/v1/onboarding/template")
     assert r.status_code == 200
     data = r.json()
     assert data["title"]
@@ -10,7 +10,7 @@ def test_template(client):
 
 
 def test_roles(client):
-    r = client.get("/api/onboarding/roles")
+    r = client.get("/api/v1/onboarding/roles")
     assert r.status_code == 200
     roles = r.json()
     assert "developer" in roles
@@ -18,7 +18,7 @@ def test_roles(client):
 
 
 def test_role_config(client):
-    r = client.get("/api/onboarding/roles/developer")
+    r = client.get("/api/v1/onboarding/roles/developer")
     assert r.status_code == 200
     data = r.json()
     assert data["label"] == "开发者"
@@ -27,6 +27,6 @@ def test_role_config(client):
 
 
 def test_role_config_not_found(client):
-    r = client.get("/api/onboarding/roles/no_such_role")
+    r = client.get("/api/v1/onboarding/roles/no_such_role")
     assert r.status_code == 404
     assert "角色不存在" in r.json()["detail"]

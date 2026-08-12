@@ -7,7 +7,7 @@ from slowapi.util import get_remote_address
 from ..multitenant import register_user, login_user, get_user_by_id, get_user_collection
 from ..middleware.auth import get_current_user, create_access_token
 
-router = APIRouter(prefix="/api/auth", tags=["auth"])
+router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 limiter = Limiter(key_func=get_remote_address)
 
 

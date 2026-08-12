@@ -1,9 +1,11 @@
 """流式问答编排：缓存 → 检索 → 路由 → LLM 流式生成，按 SSE 事件序列输出。"""
 
 import json
+import time
 import urllib.request
 
 from ..config import settings
+from ..logging_config import get_logger
 from ..search import search
 from ..router import route_model
 from ..cache import get as cache_get, put as cache_put
@@ -16,11 +18,15 @@ from ..llm import (
     build_context_text,
     build_sources,
     build_rag_user_message,
+    call_llm_with_retry,
+    LLMCallFailedError,
 )
 from .sse import _sse
 
 # 相关度阈值：cosine 相似度低于此值的检索结果视为与问题无关（如闲聊匹配到文档）
 MIN_RELEVANCE_SCORE = 0.3
+
+logger = get_logger(__name__)
 
 
 def stream_ask(question: str, top_k: int = None, user_id: int = None, api_key: str = None, model: str = None):
@@ -82,6 +88,7 @@ def stream_ask(question: str, top_k: int = None, user_id: int = None, api_key: s
     sources = build_sources(chunks, default_source="?")
 
     if not api_key:
+        logger.warning("no_api_key_configured", model=model_name)
         # Fallback: 无 LLM 时返回检索结果
         if chunks:
             fallback_text = f"（未配置 LLM_API_KEY）\n\n最相关内容来自：{sources[0]['source']}\n\n{chunks[0]['text']}"
@@ -111,8 +118,20 @@ def stream_ask(question: str, top_k: int = None, user_id: int = None, api_key: s
     })
 
     full_answer = ""
+    final_model = model_name
+
+    # P0-3: 流式 LLM 调用（带重试和熔断保护）
+    # 流式模式：retry 包装 HTTP 连接建立，连接成功后内部逐行读取 chunk
+    start_time = time.monotonic()
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        result = call_llm_with_retry(
+            call_fn=lambda: urllib.request.urlopen(req, timeout=60),
+            model_name=model_name,
+        )
+        elapsed_ms = int((time.monotonic() - start_time) * 1000)
+        final_model = result["model_used"]
+
+        with result["data"] as resp:
             for line in resp:
                 line = line.decode("utf-8").strip()
                 if not line or not line.startswith("data: "):
@@ -131,16 +150,38 @@ def stream_ask(question: str, top_k: int = None, user_id: int = None, api_key: s
                     continue
 
         # 存入缓存
-        cache_put(question, full_answer, sources, model_name)
+        cache_put(question, full_answer, sources, final_model)
+
+        logger.info(
+            "stream_generate_success",
+            model=final_model,
+            latency_ms=elapsed_ms,
+            answer_length=len(full_answer),
+            retrieval_count=len(chunks),
+        )
 
         yield _sse("sources", {"sources": sources})
         yield _sse("done", {
-            "model": model_name,
+            "model": final_model,
             "retrieval_count": len(chunks),
             "cached": False,
             "answer_length": len(full_answer),
         })
 
+    except LLMCallFailedError as e:
+        logger.error(
+            "stream_generate_failed",
+            error=str(e)[:200],
+            model=model_name,
+            retrieval_count=len(chunks),
+        )
+        yield _sse("error", {"message": str(e)})
+        yield _sse("done", {"model": model_name, "error": True})
     except Exception as e:
+        logger.error(
+            "stream_unexpected_error",
+            error=str(e)[:200],
+            model=model_name,
+        )
         yield _sse("error", {"message": str(e)})
         yield _sse("done", {"model": model_name, "error": True})

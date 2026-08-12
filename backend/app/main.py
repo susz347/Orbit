@@ -13,11 +13,15 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from .config import settings
+from .logging_config import setup_logging, get_logger
 from .middleware.request_id import RequestIDMiddleware
+from .middleware.error_handler import global_exception_handler
 from .embed import preload_model
 from .multitenant import init_db as init_tenant_db
 from .memory import init_memory_db
 from .agents import init_loop_db
+# P2-2: 可观测性（Prometheus + Sentry）
+from .monitoring import setup_prometheus, setup_sentry
 
 # API 路由
 from .api.knowledge import router as knowledge_router
@@ -28,36 +32,49 @@ from .api.auth import router as auth_router
 from .api.memory import router as memory_router
 from .api.onboarding import router as onboarding_router
 from .api.storage import router as storage_router
+from .api.usage import router as usage_router
 from .agents.api import router as agents_router
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期：启动时初始化 DB + 预热 Embedding 模型"""
-    logger.info("Knowledge Base Service starting...")
+    # P0-1: 初始化结构化日志（必须最先执行）
+    setup_logging()
+
+    # P1-3: 启动时配置验证（仅在非测试环境执行）
+    # conftest.py 设置了 SECRET_KEY 和临时目录，跳过生产级校验
+    if not os.getenv("PYTEST_RUNNING"):
+        from .config import _validate_config_on_startup
+        _validate_config_on_startup()
+
+    logger.info("knowledge_base_starting", version="1.0.0")
     try:
         init_tenant_db()
         init_memory_db()
         init_loop_db()
+        logger.info("databases_initialized")
     except Exception:
-        logger.warning("Database init failed", exc_info=True)
+        logger.error("database_init_failed", exc_info=True)
     try:
         preload_model()
+        logger.info("embedding_model_preloaded")
     except Exception:
-        logger.warning("Embedding model preload failed, will load on first request", exc_info=True)
+        logger.warning("embedding_preload_failed", exc_info=True)
 
     # P5: 启动 schedule 调度器（每分钟检查一次到期 schedule）
     try:
         from .agents.api import trigger_schedule
         from .agents.schedule import start_scheduler
         start_scheduler(trigger_schedule)
+        logger.info("schedule_scheduler_started")
     except Exception:
-        logger.warning("Schedule scheduler 启动失败", exc_info=True)
+        logger.warning("schedule_scheduler_startup_failed", exc_info=True)
 
     yield
-    logger.info("Knowledge Base Service shutting down...")
+    logger.info("knowledge_base_shutting_down")
 
 
 app = FastAPI(
@@ -67,6 +84,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# P2-2: Prometheus 指标仪表盘（/metrics）
+setup_prometheus(app)
+
+# P2-2: Sentry 错误追踪（自动，需要 SENTRY_DSN 环境变量）
+setup_sentry()
+
 # Rate Limiter
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
@@ -74,6 +97,9 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # X-Request-ID — 全链路请求追踪
 app.add_middleware(RequestIDMiddleware)
+
+# P0-2: 全局异常处理（在 CORS 之前注册，确保跨域错误也被捕获）
+app.add_exception_handler(Exception, global_exception_handler)
 
 # CORS
 _CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:8000")
@@ -99,14 +125,16 @@ app.include_router(auth_router)
 app.include_router(memory_router)
 app.include_router(onboarding_router)
 app.include_router(storage_router)
+app.include_router(usage_router)
 app.include_router(agents_router)
 
 
 # ── 健康检查 ──
 
 @app.get("/health")
-def health():
+def health(request: Request):
     """深度健康检查：验证 ChromaDB、SQLite、LLM API 连通性"""
+    log = get_logger(__name__).bind(request_id=getattr(request.state, "request_id", "unknown"))
     checks = {"service": "knowledge-base"}
 
     # 1. ChromaDB
@@ -117,6 +145,7 @@ def health():
         checks["chromadb"] = "ok"
     except Exception as e:
         checks["chromadb"] = f"unhealthy: {str(e)[:100]}"
+        log.warning("health_check_chromadb_failed", error=str(e)[:100])
 
     # 2. SQLite
     try:
@@ -127,6 +156,7 @@ def health():
         checks["sqlite"] = "ok"
     except Exception as e:
         checks["sqlite"] = f"unhealthy: {str(e)[:100]}"
+        log.warning("health_check_sqlite_failed", error=str(e)[:100])
 
     # 3. LLM API 可达性（可选）
     # Bug #10 修复：HEAD 请求对 chat/completions 端点必然失败（不支持 HEAD），
@@ -146,4 +176,6 @@ def health():
         for v in [checks.get("chromadb", ""), checks.get("sqlite", ""), checks.get("llm_api", "")]
     )
     checks["status"] = "ok" if all_healthy else "degraded"
+
+    log.info("health_check_completed", status=checks["status"], chromadb=checks.get("chromadb"), sqlite=checks.get("sqlite"))
     return checks

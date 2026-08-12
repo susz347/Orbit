@@ -86,3 +86,49 @@ def _semantic_classify(query: str) -> tuple[Optional[str], float, str]:
         return None, best_score, ""
     else:
         return "unknown", best_score, "unknown"
+
+
+def _intent_similarity(query: str, intent_name: str) -> Optional[float]:
+    """R2: 计算 query 与指定意图描述的 Embedding 相似度。
+
+    用于 Hybrid Route——规则命中后验证语义一致性：
+    "什么是 Docker" 命中 definition → 语义也像 definition → hybrid 分高 → 直接采用
+    "帮我写 Dockerfile" 命中 definition → 语义更像 code_gen → hybrid 分低 → 走 LLM 兜底
+
+    返回 cosine 相似度（0-1），失败返回 None。
+    """
+    try:
+        _build_intent_embeddings()
+    except Exception:
+        logger.debug("Intent embed build skipped")
+        return None
+
+    if not _intent_embeddings:
+        return None
+
+    # 定位目标意图的 embedding
+    target_index = None
+    for i, d in enumerate(_intent_descriptions):
+        if d["intent"] == intent_name:
+            target_index = i
+            break
+    if target_index is None:
+        return None
+
+    from ..embed import encode
+
+    query_embedding = encode([query])
+    if not query_embedding:
+        return None
+    query_emb = query_embedding[0]
+    intent_emb = _intent_embeddings[target_index]
+
+    if len(intent_emb) != len(query_emb):
+        return None
+
+    dot = sum(a * b for a, b in zip(query_emb, intent_emb))
+    norm_q = sum(x * x for x in query_emb) ** 0.5
+    norm_i = sum(x * x for x in intent_emb) ** 0.5
+    if norm_q == 0 or norm_i == 0:
+        return None
+    return dot / (norm_q * norm_i)

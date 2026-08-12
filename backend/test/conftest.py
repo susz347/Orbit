@@ -22,6 +22,7 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest")
 os.environ.pop("LLM_API_KEY", None)   # 确保无 key 场景确定
 os.environ.pop("LLM_MODEL", None)
 os.environ.pop("LLM_BASE_URL", None)
+os.environ["PYTEST_RUNNING"] = "1"    # P1-3: 跳过生产级配置验证
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -59,6 +60,16 @@ def _clean_state():
     # 否则空库判断失效 → n_results=0 的 query 报错
     from app.search import _invalidate_count_cache
     _invalidate_count_cache()
+    # 清理 Agent Loop 分支锁（P1-5）：所有 loop 测试共享 project_dir="",
+    # 分支锁 key 相同，残留锁会导致后续 loop 被 skip 而失败
+    try:
+        from app.agents import db as agents_db
+        conn = agents_db._get_db()
+        conn.execute("DELETE FROM global_switches WHERE key LIKE 'branch-lock:%'")
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 
 @pytest.fixture(scope="session")

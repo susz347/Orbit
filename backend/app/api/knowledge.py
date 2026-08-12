@@ -17,7 +17,7 @@ from ..cache import get as cache_get, put as cache_put
 from ..stream import stream_ask
 from ..middleware.auth import get_optional_user
 
-router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
+router = APIRouter(prefix="/api/v1/knowledge", tags=["knowledge"])
 
 
 @router.get("/stats")

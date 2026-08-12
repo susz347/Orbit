@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException
 
 from ..onboarding import get_onboarding_template, get_all_roles, get_role_config
 
-router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
+router = APIRouter(prefix="/api/v1/onboarding", tags=["onboarding"])
 
 
 @router.get("/template")

@@ -98,7 +98,7 @@ INTENT_TAXONOMY = {
 
 SIMPLE_PATTERNS = [
     (r'什么是|是什么|意思是', 'definition', 0.85),
-    (r'有哪些|列表|清单', 'list', 0.85),
+    (r'有哪些|列表|清单|列出|列举', 'list', 0.85),  # R1: 补充"列出/列举"
     (r'怎么用|如何使用|用法', 'howto', 0.80),
     (r'在哪|哪里|路径', 'where', 0.85),
     (r'多少|几个|数量', 'count', 0.85),
@@ -113,7 +113,7 @@ COMPLEX_PATTERNS = [
     (r'步骤|流程|怎么做到', 'workflow', 0.80),
     (r'bug|错误|报错|异常|修复', 'debug', 0.90),
     (r'安全|漏洞|风险', 'security', 0.85),
-    (r'报告|文档|总结', 'document', 0.75),
+    (r'报告|文档|总结|周报|周记', 'document', 0.75),  # R1: 补充"周报/周记"
 ]
 
 # 领域外关键词
@@ -128,6 +128,9 @@ SAFETY_PATTERNS = [
     (r'(?i)ignore\s+(all\s+)?(previous|above|prior)\s+(instructions?|prompts?)', "prompt_injection"),
     (r'(?i)system\s*prompt', "prompt_leak"),
     (r'(?i)forget\s+everything', "prompt_injection"),
+    # R1: 补充中文注入模式
+    (r'忘记所有(的)?指令|忽略(之前的|以上|所有)?指令|忽略所有提示词|忽略以上提示', "prompt_injection"),
+    (r'输出(系统)?提示词|泄露(系统)?提示词|显示(系统)?prompt', "prompt_leak"),
 ]
 
 
@@ -147,6 +150,12 @@ def _regex_classify(query: str) -> tuple[Optional[str], float, str]:
     for pattern in OUT_OF_SCOPE_INDICATORS:
         if re.search(pattern, query_lower):
             return "out_of_scope", 0.8, "out_of_scope"
+
+    # R1: 数量词优先——"知识库里有多少文档"应判 count 而非 document。
+    # 数量查询语义明确（conf=0.85），优先于 complex 的内容生成判断。
+    COUNT_PATTERN = r'多少|几个|几种|多少种|几项|数量|总计|总共'
+    if re.search(COUNT_PATTERN, query_lower):
+        return "fast", 0.85, "count"
 
     # 先复杂后简单（避免短查询误判）
     best_complex = None

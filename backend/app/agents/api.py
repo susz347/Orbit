@@ -27,7 +27,7 @@ from .schedule import compute_next_run, validate_cron
 from .schemas import LoopScheduleIn, LoopScheduleOut, GlobalSwitchOut, MetricsSummary, GraduationStatus
 from .state import load_project_state, get_graduation_status, save_project_state
 
-router = APIRouter(prefix="/api/agents", tags=["agents"])
+router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
 
 
 def _check_loop_access(loop: Optional[dict], current_user: Optional[dict]):

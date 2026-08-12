@@ -19,7 +19,7 @@ from .policies import (
     TABLE_INDICATORS,
     RELATIONSHIP_INDICATORS,
 )
-from .routing import detect_content_type, route_storage, get_strategy_info
+from .routing import detect_content_type, route_storage, get_strategy_info, _rule_confidence, _llm_verify_strategy
 from .executors import (
     execute_strategy,
     _execute_original,
@@ -39,6 +39,8 @@ __all__ = [
     "detect_content_type",
     "route_storage",
     "get_strategy_info",
+    "_rule_confidence",
+    "_llm_verify_strategy",
     "execute_strategy",
     "_execute_original",
     "_execute_structured",

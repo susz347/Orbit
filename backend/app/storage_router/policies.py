@@ -63,6 +63,15 @@ FILE_TYPE_ROUTING = {
 
 # ── 内容特征 → 策略调整 ──────────────────────────
 
-CONTRACT_KEYWORDS = ["合同", "协议", "甲方", "乙方", "合同编号", "签署", "盖章", "invoice", "发票", "收据"]
+CONTRACT_KEYWORDS = [
+    "合同", "协议", "甲方", "乙方", "合同编号", "签署", "盖章",
+    "invoice", "发票", "收据", "保密", "非公开", "法律", "合规",
+    "仲裁", "诉讼", "违约", "保密期限",
+]
 TABLE_INDICATORS = ["sheet", "table", "row", "column", "单元格", "行", "列"]
-RELATIONSHIP_INDICATORS = ["上级", "下级", "依赖", "关联", "负责人", "汇报", "parent", "child", "depends"]
+RELATIONSHIP_INDICATORS = [
+    "上级", "下级", "依赖", "关联", "负责人", "汇报", "汇报给", "报告给",
+    "parent", "child", "depends", "depends_on", "reports to", "manager",
+    "组织架构", "架构", "层级", "节点", "nodes", "edges", "source", "target",
+    "CEO", "CTO", "CFO", "director",
+]

@@ -7,7 +7,7 @@ from ..memory import (
 )
 from ..middleware.auth import get_current_user
 
-router = APIRouter(prefix="/api/memory", tags=["memory"])
+router = APIRouter(prefix="/api/v1/memory", tags=["memory"])
 
 
 @router.post("/profile")

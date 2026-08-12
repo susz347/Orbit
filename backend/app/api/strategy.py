@@ -6,7 +6,7 @@ from fastapi import APIRouter, Body, HTTPException
 from ..config import settings, RAGStrategy
 from ..schemas.strategy import StrategyPatch, _apply_section
 
-router = APIRouter(prefix="/api/knowledge", tags=["strategy"])
+router = APIRouter(prefix="/api/v1/knowledge", tags=["strategy"])
 
 
 def _strategy_to_dict() -> dict:

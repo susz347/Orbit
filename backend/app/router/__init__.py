@@ -32,6 +32,9 @@ from .service import (
     CLARIFY_THRESHOLD,
     CONFIDENCE_DOWNGRADE,
 )
+from .security import security_scan, local_model_name
+from .base import BaseRouter, RouterPipeline, build_default_pipeline
+from .plugins import RegexRouter, SemanticRouter, LLMRouter
 
 __all__ = [
     "RouteDecision",
@@ -48,4 +51,14 @@ __all__ = [
     "detect_intent",
     "CLARIFY_THRESHOLD",
     "CONFIDENCE_DOWNGRADE",
+    # R5: 安全分类器
+    "security_scan",
+    "local_model_name",
+    # R3: Router 插件化
+    "BaseRouter",
+    "RouterPipeline",
+    "build_default_pipeline",
+    "RegexRouter",
+    "SemanticRouter",
+    "LLMRouter",
 ]

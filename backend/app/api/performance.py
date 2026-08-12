@@ -4,7 +4,7 @@ from fastapi import APIRouter, Body, HTTPException
 from ..router import route_model, detect_intent, MODEL_PRESETS
 from ..cache import stats as cache_stats, clear as cache_clear
 
-router = APIRouter(prefix="/api/knowledge", tags=["performance"])
+router = APIRouter(prefix="/api/v1/knowledge", tags=["performance"])
 
 
 @router.get("/cache/stats")

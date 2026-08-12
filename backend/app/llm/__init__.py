@@ -1,4 +1,4 @@
-"""公共 LLM 客户端层 — 配置解析、请求构造、Prompt 构建。
+"""公共 LLM 客户端层 — 配置解析、请求构造、Prompt 构建、重试/熔断。
 
 供 generate/（非流式）与 stream/（流式）复用，消除两处重复的
 模型名→URL 映射、HTTP 请求构造与 RAG Prompt 拼装逻辑。
@@ -13,6 +13,11 @@ from .prompts import (
     build_rag_user_message,
     build_strict_rag_user_message,
 )
+# P0-3: LLM 调用重试与熔断
+from .retry import (
+    call_llm_with_retry,
+    LLMCallFailedError,
+)
 
 __all__ = [
     "get_llm_config",
@@ -25,4 +30,7 @@ __all__ = [
     "build_sources",
     "build_rag_user_message",
     "build_strict_rag_user_message",
+    # P0-3: 重试与熔断
+    "call_llm_with_retry",
+    "LLMCallFailedError",
 ]

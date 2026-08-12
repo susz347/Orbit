@@ -11,7 +11,7 @@ from fastapi import APIRouter, Body, HTTPException
 from ..config import settings
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/knowledge", tags=["logos"])
+router = APIRouter(prefix="/api/v1/knowledge", tags=["logos"])
 
 
 @router.post("/logos")
