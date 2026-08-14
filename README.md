@@ -4,6 +4,12 @@
 
 ### AI Agent 端到端系统 — 让 AI 自主完成从需求到交付的全流程
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.9+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=next.js&logoColor=white)](https://nextjs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![ChromaDB](https://img.shields.io/badge/ChromaDB-vector_store-6B6BFF)](https://www.trychroma.com/)
+
 </div>
 
 ---
